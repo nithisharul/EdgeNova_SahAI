@@ -187,7 +187,13 @@ export default function AssistantScreen() {
                 placeholderTextColor={Colors.textMuted}
                 editable={!thinking}
                 multiline
-                onSubmitEditing={() => send(input)}
+                // A multiline field never fires onSubmitEditing on web, so
+                // Enter is handled here. Shift+Enter still adds a new line.
+                onKeyPress={(event) => {
+                  if (event.nativeEvent.key !== 'Enter' || event.nativeEvent.shiftKey) return;
+                  event.preventDefault?.();
+                  send(input);
+                }}
                 blurOnSubmit={false}
                 accessibilityLabel="Message SahAI"
               />
@@ -321,6 +327,10 @@ const styles = StyleSheet.create({
     fontSize: FontSize.small,
     color: Colors.text,
     paddingVertical: Spacing.sm,
+    // Web only: keeps a visible focus ring, in the app's green rather than
+    // the browser's default black rectangle.
+    outlineColor: Colors.accent,
+    outlineWidth: 1,
   },
   sendButton: {
     width: 38,

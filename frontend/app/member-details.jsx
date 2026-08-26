@@ -9,6 +9,7 @@ import TransactionCard from '../components/TransactionCard';
 import Colors from '../constants/Colors';
 import { Spacing, Radius, Typography, CardBase, Shadow, FontSize } from '../constants/Theme';
 import { formatCurrency } from '../utils/currency';
+import { formatDate } from '../utils/datetime';
 import { getMemberById } from '../services/memberService';
 import { transactions } from '../data/mockFinanceData';
 
@@ -106,7 +107,7 @@ export default function MemberDetailsScreen() {
                   <DetailRow label="Member ID" value={member.id} />
                   <DetailRow label="Village" value={member.village} />
                   <DetailRow label="Phone" value={member.phone} />
-                  <DetailRow label="Joined" value={member.joinedAt} />
+                  <DetailRow label="Joined" value={formatDate(member.joinedAt)} />
                   <DetailRow
                     label="Total Savings"
                     value={formatCurrency(member.savings)}

@@ -76,7 +76,7 @@ export const ledgerRecords = [
   {
     id: 'TXN-020',
     sequence: 20,
-    memberName: 'Kavita Rao',
+    memberName: 'Kavita Devi',
     type: 'Group Expense',
     kind: 'expense',
     amount: 800,
@@ -104,7 +104,7 @@ export const ledgerRecords = [
   {
     id: 'TXN-018',
     sequence: 18,
-    memberName: 'Meera Kumari',
+    memberName: 'Parvati Devi',
     type: 'Savings Deposit',
     kind: 'savings',
     amount: 1000,
@@ -118,7 +118,7 @@ export const ledgerRecords = [
   {
     id: 'TXN-017',
     sequence: 17,
-    memberName: 'Kavita Rao',
+    memberName: 'Kavita Devi',
     type: 'Loan Disbursement',
     kind: 'disbursement',
     amount: 4000,

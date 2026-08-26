@@ -1,13 +1,27 @@
 /**
  * Dashboard mock data.
  *
- * Everything the Home screen renders lives here so the screen itself stays
- * layout-only. When the FastAPI endpoints in Config.js go live these shapes
- * are what the services layer should return, which keeps the swap mechanical.
+ * Every figure the Home screen shows is IMPORTED from the module that owns
+ * it rather than retyped here, so the dashboard can never contradict the
+ * screen a tile links to. Same rule as data/mockAssistantData.js.
  *
- * Numbers are stored raw (48500, not "Rs 48,500") -- formatting belongs to
+ * Sources:
+ *   crop        -> services/cropService.js
+ *   fertilizer  -> services/fertilizerService.js
+ *   loan risk   -> services/loanService.js
+ *   finance     -> data/mockFinanceData.js
+ *   ledger      -> data/mockLedgerData.js
+ *
+ * Numbers stay raw (48500, not "Rs 48,500") -- formatting belongs to
  * utils/currency.js so it stays consistent everywhere.
  */
+
+import { MOCK_RECOMMENDATION as CROP } from '../services/cropService';
+import { MOCK_RECOMMENDATION as FERTILIZER } from '../services/fertilizerService';
+import { DEFAULT_ASSESSMENT as LOAN } from '../services/loanService';
+import { financeSummary, loanSummary, transactions } from './mockFinanceData';
+import { ledgerSummary, verifiedResult } from './mockLedgerData';
+import { formatRelativeDateTime } from '../utils/datetime';
 
 /** The signed-in SHG member. Placeholder identity, not a real person. */
 export const homeUser = {
@@ -20,100 +34,76 @@ export const homeUser = {
 /** Headline numbers for the summary tiles: two field, two fund. */
 export const homeSummary = {
   farmRecommendationStatus: 'Ready',
-  cropMatch: 94,
-  recommendedCrop: 'Rice',
-  totalSavings: 48500,
-  activeLoans: 18000,
-  memberCount: 12,
-  savingsDelta: '+8.2%',
+  cropMatch: CROP.confidence,
+  recommendedCrop: CROP.crop,
+  totalSavings: financeSummary.totalSavings,
+  activeLoans: financeSummary.outstandingLoans,
+  activeLoanCount: loanSummary.activeCount,
+  memberCount: financeSummary.activeMembers,
+  savingsDelta: financeSummary.savingsDelta,
   season: 'Kharif 2026',
 };
 
-/** Ledger integrity strip. Mock status only -- no hashing logic yet. */
+/** Ledger integrity strip. The verdict comes from the ledger data, not here. */
 export const ledgerStatus = {
-  label: 'Verified',
-  tone: 'success',
+  label: verifiedResult.verified ? 'Verified' : 'Tamper detected',
+  tone: verifiedResult.verified ? 'success' : 'error',
   title: 'SHG Ledger',
-  message: 'No tampering detected across 46 entries.',
-  lastCheckedLabel: 'Checked today, 6:40 AM',
+  message: verifiedResult.verified
+    ? `No tampering detected across ${ledgerSummary.totalRecords} entries.`
+    : 'A record failed the integrity check.',
+  lastCheckedLabel: `Last checked ${formatRelativeDateTime(verifiedResult.verifiedAt)}`,
 };
 
 /**
  * Model-backed suggestions shown under AI Insights.
  * Shapes follow RecommendationCard's props so the screen just spreads them.
+ * Each one quotes the same figures as the screen it opens.
  */
 export const homeInsights = [
   {
     id: 'crop-match',
     title: 'Best Crop Match',
-    headline: 'Rice',
-    subheadline: '94% suitability',
+    headline: CROP.crop,
+    subheadline: `${CROP.confidence}% suitability`,
     icon: 'leaf',
     tone: 'success',
     badge: 'Agriculture',
-    badgeTone: 'success',
+    badgeTone: 'accent',
     route: '/crop-recommendation',
-    message:
-      'Your soil nitrogen and this season’s rainfall profile strongly match rice cultivation.',
+    message: CROP.message,
   },
   {
     id: 'fertilizer',
-    title: 'Fertilizer Recommendation',
-    headline: 'NPK 20-20-20',
-    subheadline: 'Balanced dose',
+    title: 'Fertilizer Advice',
+    headline: FERTILIZER.fertilizer,
+    subheadline: `${FERTILIZER.quantity} ${FERTILIZER.quantityUnit}`,
     icon: 'flask',
-    tone: 'warning',
+    tone: 'success',
     badge: 'Agriculture',
-    badgeTone: 'warning',
+    badgeTone: 'accent',
     route: '/fertilizer-advice',
-    message:
-      'Potassium is running low for the current crop stage. A balanced NPK dose can lift yield.',
+    message: FERTILIZER.message,
   },
   {
     id: 'loan-risk',
     title: 'Loan Risk Outlook',
-    headline: 'Low risk',
-    subheadline: 'Score 78 / 100',
+    headline: `${LOAN.riskLevel} risk`,
+    subheadline: `${LOAN.repaymentProbability}% repayment probability`,
     icon: 'shield-checkmark',
-    tone: 'info',
+    tone: 'success',
     badge: 'Finance',
     badgeTone: 'info',
     route: '/loan-risk',
-    message:
-      'Steady repayments across the group keep this month’s lending capacity comfortable.',
+    message: LOAN.recommendation,
   },
 ];
 
 /**
- * Latest ledger movements. Home shows a short tail; Finance owns the rest.
- * `type` drives TransactionCard's icon, sign and default label.
+ * Latest ledger movements. Home shows a short tail of the same list Finance
+ * owns, so the two screens can never disagree about a transaction.
  */
-export const recentActivities = [
-  {
-    id: 'txn-01',
-    type: 'savings',
-    description: 'Savings Deposit',
-    member: 'Asha Devi',
-    amount: 2000,
-    date: 'Today',
-  },
-  {
-    id: 'txn-02',
-    type: 'disbursement',
-    description: 'Loan Disbursement',
-    member: 'Sunita Devi',
-    amount: 5000,
-    date: 'Yesterday',
-  },
-  {
-    id: 'txn-03',
-    type: 'repayment',
-    description: 'Loan Repayment',
-    member: 'Asha Devi',
-    amount: 1500,
-    date: '25 Aug',
-  },
-];
+export const recentActivities = transactions.slice(0, 3);
 
 /**
  * Quick Actions grid. Two field shortcuts, two fund shortcuts, so the split

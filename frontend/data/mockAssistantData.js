@@ -16,13 +16,10 @@
 
 import { MOCK_RECOMMENDATION as CROP } from '../services/cropService';
 import { MOCK_RECOMMENDATION as FERTILIZER } from '../services/fertilizerService';
-import { MOCK_ASSESSMENTS } from '../services/loanService';
+import { DEFAULT_ASSESSMENT as LOAN } from '../services/loanService';
 import { financeSummary } from './mockFinanceData';
 import { verifiedResult, ledgerSummary } from './mockLedgerData';
 import { formatCurrency } from '../utils/currency';
-
-/** The Low-risk assessment, i.e. what the loan demo shows first. */
-const LOAN = MOCK_ASSESSMENTS[0];
 
 /** Opening message shown whenever the conversation starts or is reset. */
 export const welcomeMessage = {

@@ -95,16 +95,18 @@ export default function HomeScreen() {
               domain="Fund"
               label="Active Loans"
               value={formatCurrency(homeSummary.activeLoans)}
-              caption="Across 3 members"
+              caption={`Across ${homeSummary.activeLoanCount} members`}
               icon="cash"
+              onPress={() => go('/loans')}
               style={styles.metricCell}
             />
             <MetricCard
               domain="Group"
               label="Members"
               value={String(homeSummary.memberCount)}
-              caption="All contributions current"
+              caption="Active in group"
               icon="people"
+              onPress={() => go('/members')}
               style={styles.metricCell}
             />
           </View>

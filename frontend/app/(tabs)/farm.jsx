@@ -24,7 +24,7 @@ const FEATURES = [
   },
   {
     id: 'fertilizer',
-    title: 'Fertilizer Recommendation',
+    title: 'Fertilizer Advice',
     description: 'Get fertilizer guidance based on crop and soil nutrients.',
     icon: 'flask',
     route: '/fertilizer-advice',
