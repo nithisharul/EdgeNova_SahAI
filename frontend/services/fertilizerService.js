@@ -11,7 +11,7 @@ import Config from '../constants/Config';
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Placeholder response, shaped exactly like the eventual API payload. */
-const MOCK_RECOMMENDATION = {
+export const MOCK_RECOMMENDATION = {
   fertilizer: 'NPK 20-20-20',
   quantity: 35,
   quantityUnit: 'kg/ha',

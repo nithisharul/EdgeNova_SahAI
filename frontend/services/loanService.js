@@ -15,7 +15,7 @@ import Config from '../constants/Config';
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Canned responses, in the order a demo walks through them. */
-const MOCK_ASSESSMENTS = [
+export const MOCK_ASSESSMENTS = [
   {
     riskLevel: 'Low',
     riskScore: 18,
