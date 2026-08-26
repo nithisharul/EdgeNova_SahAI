@@ -49,6 +49,13 @@ const ACTIONS = [
     icon: 'shield-checkmark',
     route: '/loan-risk',
   },
+  {
+    id: 'ledger',
+    title: 'Secure Ledger',
+    description: 'Check that every group record is intact and untampered.',
+    icon: 'lock-closed',
+    route: '/ledger',
+  },
 ];
 
 export default function FinanceScreen() {

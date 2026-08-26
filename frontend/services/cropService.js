@@ -13,7 +13,7 @@ import Config from '../constants/Config';
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Placeholder response, shaped exactly like the eventual API payload. */
-const MOCK_RECOMMENDATION = {
+export const MOCK_RECOMMENDATION = {
   crop: 'Rice',
   confidence: 94,
   message:
