@@ -111,7 +111,9 @@ export default function LedgerScreen() {
     setError(null);
     setVerifyError(null);
     try {
-      if (typeof demo === 'string') setLedgerDemoMode(demo);
+      // Always set it: leaving the mode alone would keep a ?demo= state
+      // sticky after navigating back to the plain /ledger route.
+      setLedgerDemoMode(demo);
       const data = await getLedgerRecords();
       setRecords(data.records);
       setSummary(data.summary);
@@ -153,7 +155,7 @@ export default function LedgerScreen() {
     <View style={styles.screen}>
       <SahaiHeader
         title="SHG Secure Ledger"
-        subtitle="Tamper-evident financial records for your group."
+        subtitle="Finance"
         showBack
       />
 
@@ -253,7 +255,7 @@ export default function LedgerScreen() {
                 title="Ledger Records"
                 caption={
                   records.length
-                    ? 'Newest first · tap a record for its hash details'
+                    ? `Latest ${records.length} of ${summary?.totalRecords ?? records.length} · tap a record for its hash details`
                     : 'Nothing recorded yet'
                 }
               />

@@ -105,6 +105,10 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     fontSize: FontSize.body,
     color: Colors.text,
+    // Web only: the wrapper already shows focus, so the browser's default
+    // black outline is replaced with the app's own green.
+    outlineColor: Colors.secondary,
+    outlineWidth: 1,
   },
   inputMultiline: {
     minHeight: 88,

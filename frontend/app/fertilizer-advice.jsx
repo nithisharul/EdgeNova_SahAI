@@ -92,7 +92,7 @@ export default function FertilizerAdviceScreen() {
 
   return (
     <View style={styles.screen}>
-      <SahaiHeader title="Fertilizer Recommendation" subtitle="Agriculture" showBack />
+      <SahaiHeader title="Fertilizer Advice" subtitle="Agriculture" showBack />
 
       <KeyboardAvoidingView
         style={styles.flex}

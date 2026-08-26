@@ -30,56 +30,69 @@ export default function SahaiHeader({
 
   return (
     <View style={[styles.header, { paddingTop: insets.top + Spacing.md }]}>
-      {showBack ? (
-        <Pressable
-          onPress={handleBack}
-          hitSlop={10}
-          style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
-        >
-          <Ionicons name="chevron-back" size={22} color={Colors.primary} />
-        </Pressable>
-      ) : (
-        <View style={styles.brandMark}>
-          <Ionicons name="leaf" size={20} color={Colors.secondary} />
-        </View>
-      )}
+      {/* Inner column matches the screens below, so on a wide browser the
+          title sits above the content instead of out at the edge. */}
+      <View style={styles.inner}>
+        {showBack ? (
+          <Pressable
+            onPress={handleBack}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
+          >
+            <Ionicons name="chevron-back" size={22} color={Colors.primary} />
+          </Pressable>
+        ) : (
+          <View style={styles.brandMark}>
+            <Ionicons name="leaf" size={20} color={Colors.secondary} />
+          </View>
+        )}
 
-      <View style={styles.titleBlock}>
-        <Text style={styles.title} numberOfLines={1}>
-          {title}
-        </Text>
-        {!!subtitle && (
-          <Text style={styles.subtitle} numberOfLines={1}>
-            {subtitle}
+        <View style={styles.titleBlock}>
+          <Text style={styles.title} numberOfLines={1}>
+            {title}
           </Text>
+          {!!subtitle && (
+            <Text style={styles.subtitle} numberOfLines={1}>
+              {subtitle}
+            </Text>
+          )}
+        </View>
+
+        {onNotificationsPress ? (
+          <Pressable
+            onPress={onNotificationsPress}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Notifications"
+            style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+          >
+            <Ionicons name="notifications-outline" size={22} color={Colors.textSecondary} />
+          </Pressable>
+        ) : (
+          <View style={styles.iconButton} />
         )}
       </View>
-
-      {onNotificationsPress ? (
-        <Pressable
-          onPress={onNotificationsPress}
-          hitSlop={10}
-          style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
-        >
-          <Ionicons name="notifications-outline" size={22} color={Colors.textSecondary} />
-        </Pressable>
-      ) : (
-        <View style={styles.iconButton} />
-      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.md,
     backgroundColor: Colors.background,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
+  },
+  inner: {
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
   },
   brandMark: {
     width: 40,

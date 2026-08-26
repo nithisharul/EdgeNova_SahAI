@@ -10,8 +10,9 @@ import { Spacing, Typography } from '../../constants/Theme';
 /**
  * Farm hub: the entry point for every agriculture feature.
  *
- * The first two cards are live this phase; the last two are signposted as
- * upcoming so the section still reads as a complete module.
+ * `ready` splits the list into what a farmer can use now and what is only
+ * signposted. Everything is live at the moment, so the second section is
+ * skipped rather than rendered as an empty heading.
  */
 const FEATURES = [
   {
@@ -24,7 +25,7 @@ const FEATURES = [
   },
   {
     id: 'fertilizer',
-    title: 'Fertilizer Recommendation',
+    title: 'Fertilizer Advice',
     description: 'Get fertilizer guidance based on crop and soil nutrients.',
     icon: 'flask',
     route: '/fertilizer-advice',
@@ -33,23 +34,26 @@ const FEATURES = [
   {
     id: 'crop-health',
     title: 'Crop Health',
-    description: 'Monitor crop health and field conditions.',
+    description: 'See how each plot is doing and what needs attention.',
     icon: 'pulse',
     route: '/crop-health',
-    ready: false,
+    ready: true,
   },
   {
     id: 'my-land',
     title: 'My Land',
-    description: 'View your farm profile and land information.',
+    description: 'Your farm profile, plot sizes and field sections.',
     icon: 'map',
     route: '/my-land',
-    ready: false,
+    ready: true,
   },
 ];
 
 export default function FarmScreen() {
   const go = (route) => router.push(route);
+
+  const available = FEATURES.filter((feature) => feature.ready);
+  const upcoming = FEATURES.filter((feature) => !feature.ready);
 
   return (
     <View style={styles.screen}>
@@ -65,8 +69,8 @@ export default function FarmScreen() {
           </View>
 
           <View style={styles.section}>
-            <SectionHeader title="Available Now" caption="Backed by SahAI recommendations" />
-            {FEATURES.filter((f) => f.ready).map((feature) => (
+            <SectionHeader title="Available Now" caption="Field tools and farm records" />
+            {available.map((feature) => (
               <InfoCard
                 key={feature.id}
                 title={feature.title}
@@ -77,19 +81,21 @@ export default function FarmScreen() {
             ))}
           </View>
 
-          <View style={styles.section}>
-            <SectionHeader title="Coming Soon" caption="Planned for a later release" />
-            {FEATURES.filter((f) => !f.ready).map((feature) => (
-              <InfoCard
-                key={feature.id}
-                title={feature.title}
-                description={feature.description}
-                icon={feature.icon}
-                onPress={() => go(feature.route)}
-                rightElement={<StatusBadge label="Soon" tone="neutral" size="sm" />}
-              />
-            ))}
-          </View>
+          {upcoming.length > 0 && (
+            <View style={styles.section}>
+              <SectionHeader title="Coming Soon" caption="Planned for a later release" />
+              {upcoming.map((feature) => (
+                <InfoCard
+                  key={feature.id}
+                  title={feature.title}
+                  description={feature.description}
+                  icon={feature.icon}
+                  onPress={() => go(feature.route)}
+                  rightElement={<StatusBadge label="Soon" tone="neutral" size="sm" />}
+                />
+              ))}
+            </View>
+          )}
         </View>
       </ScrollView>
     </View>

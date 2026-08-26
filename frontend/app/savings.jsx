@@ -129,7 +129,7 @@ export default function SavingsScreen() {
               <>
                 <View style={styles.metricRow}>
                   <MetricCard
-                    label="Total Group Savings"
+                    label="Total Savings"
                     value={formatCurrency(data.totalSavings)}
                     caption="All members"
                     icon="wallet"

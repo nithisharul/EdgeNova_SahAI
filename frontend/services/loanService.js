@@ -7,14 +7,15 @@ import Config from '../constants/Config';
  * classify anything. These are canned payloads shaped exactly like the
  * response Config.ENDPOINTS.loanRisk will return.
  *
- * The inputs are never inspected. Successive calls simply step through the
- * three canned results so all of Low / Medium / High can be seen during a
- * demo -- that is presentation rotation, not a prediction.
+ * The inputs are never inspected and the answer never changes: the same
+ * request has to produce the same result every time it is shown. The Medium
+ * and High payloads stay in the list so those layouts can still be checked
+ * while working on the result screen.
  */
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Canned responses, in the order a demo walks through them. */
+/** Canned responses, Low first. */
 export const MOCK_ASSESSMENTS = [
   {
     riskLevel: 'Low',
@@ -51,7 +52,8 @@ export const MOCK_ASSESSMENTS = [
   },
 ];
 
-let callIndex = 0;
+/** The payload every call returns until the backend is wired up. */
+export const DEFAULT_ASSESSMENT = MOCK_ASSESSMENTS[0];
 
 /**
  * @param {object} input - { memberId, memberName, requestedAmount,
@@ -67,16 +69,8 @@ export async function assessLoanRisk(input) {
     throw new Error('Live loan risk assessment is not connected yet.');
   }
 
-  // Rotation only -- `input` is passed straight back, never examined.
-  const assessment = MOCK_ASSESSMENTS[callIndex % MOCK_ASSESSMENTS.length];
-  callIndex += 1;
-
-  return { ...assessment, input };
+  // `input` is passed straight back, never examined.
+  return { ...DEFAULT_ASSESSMENT, input };
 }
 
-/** Test/demo helper: next assessment starts from Low again. */
-export function resetAssessmentCycle() {
-  callIndex = 0;
-}
-
-export default { assessLoanRisk, resetAssessmentCycle };
+export default { assessLoanRisk };

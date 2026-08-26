@@ -141,7 +141,7 @@ export default function FinanceScreen() {
                   label="Active Loans"
                   value={formatCurrency(summary.outstandingLoans)}
                   caption="Outstanding"
-                  icon="trending-up"
+                  icon="cash"
                   onPress={() => go('/loans')}
                   style={styles.metricCell}
                 />

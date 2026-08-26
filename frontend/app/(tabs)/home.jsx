@@ -6,6 +6,7 @@ import QuickActionCard from '../../components/QuickActionCard';
 import RecommendationCard from '../../components/RecommendationCard';
 import TransactionCard from '../../components/TransactionCard';
 import SectionHeader from '../../components/SectionHeader';
+import SecondaryButton from '../../components/SecondaryButton';
 import StatusBadge from '../../components/StatusBadge';
 import Colors from '../../constants/Colors';
 import { Spacing, Radius, Typography, CardBase, Shadow } from '../../constants/Theme';
@@ -95,16 +96,18 @@ export default function HomeScreen() {
               domain="Fund"
               label="Active Loans"
               value={formatCurrency(homeSummary.activeLoans)}
-              caption="Across 3 members"
+              caption={`Across ${homeSummary.activeLoanCount} members`}
               icon="cash"
+              onPress={() => go('/loans')}
               style={styles.metricCell}
             />
             <MetricCard
               domain="Group"
               label="Members"
               value={String(homeSummary.memberCount)}
-              caption="All contributions current"
+              caption="Active in group"
               icon="people"
+              onPress={() => go('/members')}
               style={styles.metricCell}
             />
           </View>
@@ -167,6 +170,13 @@ export default function HomeScreen() {
               />
             ))}
           </View>
+
+          {/* Combined field + fund report ------------------------------ */}
+          <SecondaryButton
+            label="View Performance Report"
+            icon="stats-chart"
+            onPress={() => go('/reports')}
+          />
 
           {/* Recent activity ------------------------------------------- */}
           <View style={styles.section}>

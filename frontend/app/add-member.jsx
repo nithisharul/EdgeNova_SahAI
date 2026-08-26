@@ -65,7 +65,12 @@ export default function AddMemberScreen() {
     setStatus('idle');
   };
 
-  const goToMembers = () => router.back();
+  // Opened from the members list this pops back to it; opened directly
+  // (deep link or a page refresh) there is nothing to pop, so go there.
+  const goToMembers = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/members');
+  };
 
   if (status === 'done' && created) {
     return (
