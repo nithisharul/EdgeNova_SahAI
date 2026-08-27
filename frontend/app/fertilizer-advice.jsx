@@ -16,7 +16,6 @@ import SecondaryButton from '../components/SecondaryButton';
 import RecommendationCard from '../components/RecommendationCard';
 import Colors from '../constants/Colors';
 import { Spacing, Radius, Typography, FontSize } from '../constants/Theme';
-import { formatCurrency } from '../utils/currency';
 import { validateForm, toNumbers } from '../utils/validation';
 import { recommendFertilizer } from '../services/fertilizerService';
 
@@ -27,25 +26,71 @@ import { recommendFertilizer } from '../services/fertilizerService';
  * component, which keeps the dependency list unchanged.
  */
 
+/**
+ * These are exactly the features the trained model reads -- see
+ * models/train_fertilizer_model.py. Soil pH used to be collected here and is
+ * now gone: the fertilizer model never saw it, so asking for it implied an
+ * influence on the answer that does not exist.
+ */
 const NUMERIC_FIELDS = [
-  { name: 'nitrogen', label: 'Nitrogen', unit: 'kg/ha', placeholder: '90', min: 0, max: 500 },
-  { name: 'phosphorus', label: 'Phosphorus', unit: 'kg/ha', placeholder: '42', min: 0, max: 500 },
-  { name: 'potassium', label: 'Potassium', unit: 'kg/ha', placeholder: '43', min: 0, max: 500 },
-  { name: 'ph', label: 'Soil pH', unit: '', placeholder: '6.5', min: 0, max: 14 },
+  { name: 'temperature', label: 'Temperature', unit: '°C', placeholder: '26', min: 0, max: 60 },
+  { name: 'humidity', label: 'Humidity', unit: '%', placeholder: '52', min: 0, max: 100 },
+  { name: 'moisture', label: 'Soil Moisture', unit: '%', placeholder: '38', min: 0, max: 100 },
+  { name: 'nitrogen', label: 'Nitrogen', unit: 'kg/ha', placeholder: '37', min: 0, max: 500 },
+  { name: 'potassium', label: 'Potassium', unit: 'kg/ha', placeholder: '0', min: 0, max: 500 },
+  { name: 'phosphorus', label: 'Phosphorus', unit: 'kg/ha', placeholder: '0', min: 0, max: 500 },
 ];
 
-/** Common crops offered as one-tap shortcuts above the crop input. */
-const COMMON_CROPS = ['Rice', 'Wheat', 'Maize', 'Cotton', 'Sugarcane'];
+/**
+ * Crops the fertilizer model has a category for. Anything else still works --
+ * the backend translates crop-model names and answers fruit crops from a
+ * published guideline table -- but these are the ones it was trained on.
+ */
+const COMMON_CROPS = ['Paddy', 'Wheat', 'Maize', 'Cotton', 'Sugarcane', 'Pulses'];
+
+/** The five soil types the model's encoder was fitted on. */
+const SOIL_TYPES = ['Sandy', 'Loamy', 'Black', 'Red', 'Clayey'];
 
 const RULES = {
   crop: { type: 'text', label: 'Crop' },
+  soilType: { type: 'text', label: 'Soil type' },
   ...NUMERIC_FIELDS.reduce((acc, f) => {
     acc[f.name] = { label: f.label, min: f.min, max: f.max };
     return acc;
   }, {}),
 };
 
-const EMPTY = { crop: '', ...NUMERIC_FIELDS.reduce((a, f) => ({ ...a, [f.name]: '' }), {}) };
+const EMPTY = {
+  crop: '',
+  soilType: '',
+  ...NUMERIC_FIELDS.reduce((a, f) => ({ ...a, [f.name]: '' }), {}),
+};
+
+/**
+ * Only show a stat the result actually carries.
+ *
+ * The model returns a fertilizer GRADE and, when it is a model answer rather
+ * than a guideline-table one, a probability. It has no opinion on dosage or on
+ * money saved, so those are omitted rather than filled with invented numbers.
+ */
+function buildStats(result) {
+  const stats = [];
+
+  if (result.confidence != null) {
+    stats.push({ label: 'Model Confidence', value: `${result.confidence}%` });
+  }
+  if (result.source === 'guideline') {
+    stats.push({ label: 'Source', value: 'Published guideline' });
+  }
+  if (result.quantity != null && result.quantityUnit) {
+    stats.push({
+      label: 'Recommended Quantity',
+      value: `${result.quantity} ${result.quantityUnit}`,
+    });
+  }
+
+  return stats;
+}
 
 export default function FertilizerAdviceScreen() {
   const [values, setValues] = useState(EMPTY);
@@ -72,6 +117,7 @@ export default function FertilizerAdviceScreen() {
       const numericNames = NUMERIC_FIELDS.map((f) => f.name);
       const payload = await recommendFertilizer({
         crop: values.crop.trim(),
+        soilType: values.soilType.trim(),
         ...toNumbers(values, numericNames),
       });
       setResult(payload);
@@ -114,16 +160,7 @@ export default function FertilizerAdviceScreen() {
                   badgeTone="success"
                   headline={result.fertilizer}
                   message={result.message}
-                  stats={[
-                    {
-                      label: 'Recommended Quantity',
-                      value: `${result.quantity} ${result.quantityUnit}`,
-                    },
-                    {
-                      label: 'Estimated Saving',
-                      value: formatCurrency(result.estimatedSaving),
-                    },
-                  ]}
+                  stats={buildStats(result)}
                   highlights={result.actions}
                   tone="success"
                 />
@@ -179,6 +216,45 @@ export default function FertilizerAdviceScreen() {
                           >
                             <Text style={[styles.chipText, active && styles.chipTextActive]}>
                               {crop}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+
+                  {/* Soil type is a real model feature with a fixed
+                      vocabulary, so it is chosen rather than typed. */}
+                  <View style={styles.cropBlock}>
+                    <InputField
+                      label="Soil Type"
+                      value={values.soilType}
+                      onChangeText={setField('soilType')}
+                      placeholder="e.g. Loamy"
+                      error={errors.soilType}
+                      required
+                      autoCapitalize="words"
+                      editable={!loading}
+                    />
+                    <View style={styles.chipRow}>
+                      {SOIL_TYPES.map((soil) => {
+                        const active =
+                          values.soilType.trim().toLowerCase() === soil.toLowerCase();
+                        return (
+                          <Pressable
+                            key={soil}
+                            onPress={() => setField('soilType')(soil)}
+                            disabled={loading}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected: active }}
+                            style={({ pressed }) => [
+                              styles.chip,
+                              active && styles.chipActive,
+                              pressed && styles.chipPressed,
+                            ]}
+                          >
+                            <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                              {soil}
                             </Text>
                           </Pressable>
                         );

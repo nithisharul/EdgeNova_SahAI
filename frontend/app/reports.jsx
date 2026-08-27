@@ -1,5 +1,13 @@
-import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
-import { router } from 'expo-router';
+import { useCallback, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  ActivityIndicator,
+} from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import SahaiHeader from '../components/SahaiHeader';
 import SectionHeader from '../components/SectionHeader';
@@ -9,23 +17,87 @@ import ProgressBar from '../components/ProgressBar';
 import Colors from '../constants/Colors';
 import { Spacing, Typography, CardBase, Shadow, FontSize } from '../constants/Theme';
 import { formatCurrency } from '../utils/currency';
-import {
-  reportPeriod,
-  fieldReport,
-  fundReport,
-  savingsTrend,
-  reportHighlights,
-} from '../data/mockReportData';
+import SecondaryButton from '../components/SecondaryButton';
+import { getPerformanceReport } from '../services/reportService';
 
 /**
- * Monthly performance report.
+ * Performance report.
  *
- * The point of this screen is the pairing: the same month read from the
- * field side and the fund side. It computes nothing -- every figure is
- * imported from the module that owns it, see data/mockReportData.js.
+ * The point of this screen is the pairing: the same period read from the
+ * field side and the fund side. It computes nothing -- every figure comes
+ * from services/reportService.js, which derives it from the ledger.
+ *
+ * The field half is thinner than the fund half on purpose. The backend has no
+ * farm-health survey and no land register, so those cards are absent rather
+ * than filled with numbers nobody measured.
  */
+/**
+ * The "what this means" lines.
+ *
+ * Each one restates a figure already on this page, so a highlight can never
+ * contradict the card above it. Lines whose data is missing are not produced.
+ */
+function buildHighlights(data) {
+  const lines = [];
+
+  if (data.fund.availableBalance > 0) {
+    lines.push({
+      id: 'available',
+      text: `${formatCurrency(data.fund.availableBalance)} is available to lend today.`,
+      route: '/loans',
+    });
+  }
+  if (data.fund.savingsThisMonth > 0) {
+    lines.push({
+      id: 'month',
+      text: `${formatCurrency(data.fund.savingsThisMonth)} was saved this month.`,
+      route: '/savings',
+    });
+  }
+  if (data.fund.repaymentHealth > 0) {
+    lines.push({
+      id: 'repayment',
+      text: `${data.fund.repaymentHealth}% of lent principal has been repaid.`,
+      route: '/loans',
+    });
+  }
+  if (data.fund.ledgerVerified != null) {
+    lines.push({
+      id: 'ledger',
+      text: data.fund.ledgerVerified
+        ? `All ${data.fund.ledgerTotal} ledger entries verify against their hashes.`
+        : 'The ledger chain does not verify -- review it before the meeting.',
+      route: '/ledger',
+    });
+  }
+
+  return lines;
+}
+
 export default function ReportsScreen() {
-  const peakDeposit = Math.max(...savingsTrend.map((entry) => entry.amount));
+  const [data, setData] = useState(null);
+  const [status, setStatus] = useState('loading'); // loading | ready | error
+
+  const load = useCallback(async () => {
+    setStatus('loading');
+    try {
+      setData(await getPerformanceReport());
+      setStatus('ready');
+    } catch {
+      setStatus('error');
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
+
+  const trend = data?.savingsTrend ?? [];
+  const peakDeposit = trend.length
+    ? Math.max(...trend.map((entry) => entry.amount))
+    : 0;
 
   return (
     <View style={styles.screen}>
@@ -33,49 +105,75 @@ export default function ReportsScreen() {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.inner}>
+          {status === 'loading' && (
+            <View style={styles.stateBox}>
+              <ActivityIndicator color={Colors.secondary} />
+              <Text style={styles.stateText}>Building your report...</Text>
+            </View>
+          )}
+
+          {status === 'error' && (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText}>
+                Unable to build the report right now. Please try again.
+              </Text>
+              <SecondaryButton label="Retry" icon="refresh" onPress={load} />
+            </View>
+          )}
+
+          {status === 'ready' && !!data && (
+            <>
           {/* Period ----------------------------------------------------- */}
           <View style={styles.periodCard}>
             <View style={styles.periodText}>
-              <Text style={styles.periodLabel}>Monthly Performance</Text>
-              <Text style={styles.periodValue}>{reportPeriod.label}</Text>
-              <Text style={styles.periodCaption}>{reportPeriod.caption}</Text>
+              <Text style={styles.periodLabel}>Group Performance</Text>
+              <Text style={styles.periodValue}>
+                {trend.length ? trend[trend.length - 1].month : 'No deposits yet'}
+              </Text>
+              <Text style={styles.periodCaption}>
+                {data.fund.activeMembers} members · {data.fund.ledgerTotal} ledger entries
+              </Text>
             </View>
-            <StatusBadge label={reportPeriod.season} tone="accent" icon="partly-sunny-outline" />
+            <StatusBadge
+              label={`${trend.length} month${trend.length === 1 ? '' : 's'}`}
+              tone="accent"
+              icon="calendar-outline"
+            />
           </View>
 
           {/* Field ------------------------------------------------------ */}
           <View style={styles.section}>
             <SectionHeader title="Field" caption="Crop, inputs and land condition" />
 
+            {/* Only the predictions actually run this session appear here.
+                Farm health and monitored acreage have no backend source, so
+                no card claims them. */}
             <View style={styles.metricRow}>
               <MetricCard
                 domain="Field"
                 label="Crop Match"
-                value={`${fieldReport.cropMatch}%`}
-                caption={fieldReport.recommendedCrop}
+                value={data.field.crop ? `${data.field.crop.confidence}%` : '--'}
+                caption={data.field.crop ? data.field.crop.name : 'Not run yet'}
                 icon="leaf"
                 onPress={() => router.push('/crop-recommendation')}
                 style={styles.metricCell}
               />
               <MetricCard
                 domain="Field"
-                label="Farm Health"
-                value={`${fieldReport.farmHealth}%`}
-                caption={`${fieldReport.monitoredAcres} acres monitored`}
-                icon="pulse"
-                onPress={() => router.push('/crop-health')}
+                label="Fertilizer"
+                value={data.field.fertilizer ? data.field.fertilizer.grade : '--'}
+                caption={data.field.fertilizer ? 'Recommended grade' : 'Not run yet'}
+                icon="flask"
+                onPress={() => router.push('/fertilizer-advice')}
                 style={styles.metricCell}
               />
             </View>
 
-            <MetricCard
-              domain="Field"
-              label="Estimated Fertilizer Saving"
-              value={formatCurrency(fieldReport.estimatedSaving)}
-              caption={`${fieldReport.fertilizer} · ${fieldReport.fertilizerQuantity}`}
-              icon="flask"
-              onPress={() => router.push('/fertilizer-advice')}
-            />
+            {!data.field.crop && !data.field.fertilizer && (
+              <Text style={styles.cardNote}>
+                Run a crop or fertilizer recommendation and it will appear here.
+              </Text>
+            )}
           </View>
 
           {/* Fund ------------------------------------------------------- */}
@@ -86,8 +184,8 @@ export default function ReportsScreen() {
               <MetricCard
                 domain="Fund"
                 label="Total Savings"
-                value={formatCurrency(fundReport.totalSavings)}
-                caption={`${fundReport.activeMembers} members`}
+                value={formatCurrency(data.fund.totalSavings)}
+                caption={`${data.fund.activeMembers} members`}
                 icon="wallet"
                 onPress={() => router.push('/savings')}
                 style={styles.metricCell}
@@ -95,8 +193,8 @@ export default function ReportsScreen() {
               <MetricCard
                 domain="Fund"
                 label="Active Loans"
-                value={formatCurrency(fundReport.outstandingLoans)}
-                caption={`Outstanding · ${fundReport.activeLoanCount} loans`}
+                value={formatCurrency(data.fund.outstandingLoans)}
+                caption={`Outstanding · ${data.fund.activeLoanCount} loans`}
                 icon="cash"
                 onPress={() => router.push('/loans')}
                 style={styles.metricCell}
@@ -106,13 +204,13 @@ export default function ReportsScreen() {
             <View style={styles.card}>
               <ProgressBar
                 label="Repayment health"
-                valueLabel={`${fundReport.repaymentHealth}%`}
-                value={fundReport.repaymentHealth}
+                valueLabel={`${data.fund.repaymentHealth}%`}
+                value={data.fund.repaymentHealth}
                 tone="success"
                 height={10}
               />
               <Text style={styles.cardNote}>
-                Repayment probability from the latest loan risk assessment.
+                Share of disbursed principal already repaid, across the ledger.
               </Text>
             </View>
 
@@ -121,12 +219,12 @@ export default function ReportsScreen() {
                 <View style={styles.periodText}>
                   <Text style={styles.cardTitle}>Ledger Integrity</Text>
                   <Text style={styles.cardNote}>
-                    {fundReport.ledgerChecked} of {fundReport.ledgerTotal} records checked
+                    {data.fund.ledgerChecked} of {data.fund.ledgerTotal} records checked
                   </Text>
                 </View>
                 <StatusBadge
-                  label={fundReport.ledgerVerified ? 'Verified' : 'Tamper detected'}
-                  tone={fundReport.ledgerVerified ? 'success' : 'error'}
+                  label={data.fund.ledgerVerified ? 'Verified' : 'Tamper detected'}
+                  tone={data.fund.ledgerVerified ? 'success' : 'error'}
                   icon="shield-checkmark"
                 />
               </View>
@@ -137,11 +235,11 @@ export default function ReportsScreen() {
           <View style={styles.section}>
             <SectionHeader title="Savings Growth" caption="Deposits recorded per month" />
             <View style={styles.card}>
-              {savingsTrend.map((entry) => (
+              {trend.map((entry) => (
                 <View key={entry.id} style={styles.trendRow}>
                   <Text style={styles.trendMonth}>{entry.month}</Text>
                   <ProgressBar
-                    value={(entry.amount / peakDeposit) * 100}
+                    value={peakDeposit ? (entry.amount / peakDeposit) * 100 : 0}
                     tone="accent"
                     height={12}
                     style={styles.trendBar}
@@ -156,7 +254,7 @@ export default function ReportsScreen() {
           <View style={styles.section}>
             <SectionHeader title="What This Means" caption="Tap a line to open the detail" />
             <View style={styles.card}>
-              {reportHighlights.map((item, index) => (
+              {buildHighlights(data).map((item, index) => (
                 <Pressable
                   key={item.id}
                   onPress={() => router.push(item.route)}
@@ -164,7 +262,7 @@ export default function ReportsScreen() {
                   accessibilityLabel={item.text}
                   style={({ pressed }) => [
                     styles.highlightRow,
-                    index < reportHighlights.length - 1 && styles.highlightDivider,
+                    index < buildHighlights(data).length - 1 && styles.highlightDivider,
                     pressed && styles.pressed,
                   ]}
                 >
@@ -177,8 +275,10 @@ export default function ReportsScreen() {
           </View>
 
           <Text style={styles.demoNote}>
-            Demo report from the current SahAI records. Exporting is not connected yet.
+            Built from the group ledger. Exporting is not connected yet.
           </Text>
+            </>
+          )}
         </View>
       </ScrollView>
     </View>
@@ -187,6 +287,20 @@ export default function ReportsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: Colors.background },
+  stateBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.xxl,
+  },
+  stateText: { ...Typography.bodySmall },
+  errorBox: {
+    gap: Spacing.md,
+    backgroundColor: Colors.errorSoft,
+    borderRadius: 12,
+    padding: Spacing.lg,
+  },
+  errorText: { ...Typography.bodySmall, color: Colors.error },
   content: { padding: Spacing.lg, paddingBottom: Spacing.xxxl },
   inner: {
     width: '100%',

@@ -9,7 +9,8 @@ from typing import Optional
 
 from backend.auth import hash_password, verify_password
 
-DB_PATH = "backend/database.db"
+# Absolute, resolved from backend/ -- see backend/db_path.py for why.
+from backend.db_path import DB_PATH
 
 
 @dataclass

@@ -38,10 +38,17 @@ export default function CropHealthScreen() {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.inner}>
-          <Text style={styles.subtitle}>
-            Demo field health overview, built from the last field survey. SahAI does not
-            analyse images or satellite data.
-          </Text>
+          {/* This screen has no backend behind it. The figures below are
+              sample content, and the banner says so rather than letting them
+              read as records from the group's database. */}
+          <View style={styles.previewNotice}>
+            <Ionicons name="flask-outline" size={16} color={Colors.warning} />
+            <Text style={styles.previewNoticeText}>
+              Preview feature. Field health is not stored in the SahAI database yet, so the
+              figures below are sample content, not your records.
+            </Text>
+          </View>
+
 
           {/* Overall ---------------------------------------------------- */}
           <View style={styles.heroCard}>
@@ -206,6 +213,21 @@ function accentFor(tone) {
 }
 
 const styles = StyleSheet.create({
+  previewNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.sm,
+    backgroundColor: Colors.warningSoft,
+    borderRadius: 12,
+    padding: Spacing.md,
+  },
+  previewNoticeText: {
+    ...Typography.caption,
+    color: Colors.text,
+    flex: 1,
+    lineHeight: 17,
+  },
+
   screen: { flex: 1, backgroundColor: Colors.background },
   content: { padding: Spacing.lg, paddingBottom: Spacing.xxxl },
   inner: {

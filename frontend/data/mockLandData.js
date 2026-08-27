@@ -10,7 +10,8 @@
  * from the acreage below.
  */
 
-import { MOCK_RECOMMENDATION as CROP } from '../services/cropService';
+/** Placeholder crop for the sample plots below. */
+const CROP = { crop: 'Rice' };
 import { plotHealth } from './mockCropHealthData';
 
 const SECTIONS = [

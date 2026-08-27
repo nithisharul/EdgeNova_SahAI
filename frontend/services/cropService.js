@@ -1,45 +1,79 @@
 import Config from '../constants/Config';
+import { postJson } from './apiClient';
+import { setLatestCrop } from './sessionState';
 
 /**
  * Crop recommendation service.
  *
- * The frontend deliberately contains NO prediction logic -- this module is a
- * seam, not a model. Today it resolves a canned response after the configured
- * delay; in a later phase the body of recommendCrop is replaced with a call to
- * Config.API_BASE_URL + Config.ENDPOINTS.cropRecommendation and every screen
- * keeps working unchanged.
+ * The frontend contains NO prediction logic -- this maps the form's field
+ * names onto the trained model's feature names, calls FastAPI, and maps the
+ * response back into the shape the screen already renders.
+ *
+ * MODEL CONTRACT (models/train_crop_model.py, 22 crops, 97.9% test accuracy)
+ *   features : N, P, K, temperature, humidity, ph, rainfall
+ *   output   : crop label + softmax probability + ranked alternatives
+ *
+ * The screen's nitrogen/phosphorus/potassium are the same three quantities as
+ * N/P/K, so this is a rename, not a conversion.
  */
 
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Screen field names -> the model's training feature names. */
+function toModelFeatures(input) {
+  return {
+    N: input.nitrogen,
+    P: input.phosphorus,
+    K: input.potassium,
+    temperature: input.temperature,
+    humidity: input.humidity,
+    ph: input.ph,
+    rainfall: input.rainfall,
+  };
+}
 
-/** Placeholder response, shaped exactly like the eventual API payload. */
-export const MOCK_RECOMMENDATION = {
-  crop: 'Rice',
-  confidence: 94,
-  message:
-    'Your soil nutrients and environmental conditions strongly match rice cultivation.',
-  factors: [
-    'Suitable rainfall conditions',
-    'Healthy soil pH range',
-    'Strong nitrogen compatibility',
-  ],
-};
+const titleCase = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
+
+/**
+ * API payload -> the shape the screen renders.
+ *
+ * `confidence` is a real softmax probability from the trained classifier, so
+ * it is shown as a percentage. The model offers no explanation of WHY a crop
+ * won, so none is claimed: `factors` reports its ranked runners-up, labelled
+ * as exactly that.
+ */
+function fromApi(payload, input) {
+  const alternatives = (payload.alternatives || []).filter(
+    (alt) => alt.crop !== payload.recommended_crop
+  );
+
+  return {
+    crop: titleCase(payload.recommended_crop),
+    confidence: Math.round((payload.confidence ?? 0) * 100),
+    message: 'Best match for these readings out of the 22 crops the model knows.',
+    factors: alternatives.length
+      ? alternatives.map(
+          (alt) =>
+            `Next closest: ${titleCase(alt.crop)} (${Math.round((alt.confidence ?? 0) * 100)}%)`
+        )
+      : ['No close alternative for these readings'],
+    fertilizerAvailable: !!payload.fertilizer_available,
+    input,
+  };
+}
 
 /**
  * @param {object} input - { nitrogen, phosphorus, potassium, temperature,
  *                           humidity, ph, rainfall } as numbers.
- * @returns {Promise<object>} the recommendation payload.
  */
 export async function recommendCrop(input) {
-  await wait(Config.MOCK_DELAY);
-
-  if (!Config.USE_MOCK_DATA) {
-    // Reached once the backend is live; wired up in a later phase.
-    throw new Error('Live crop prediction is not connected yet.');
-  }
-
-  // The payload is returned as-is: no scoring, thresholds or branching here.
-  return { ...MOCK_RECOMMENDATION, input };
+  const payload = await postJson(
+    Config.ENDPOINTS.cropRecommendation,
+    toModelFeatures(input)
+  );
+  const result = fromApi(payload, input);
+  // Remembered so Home and the Assistant can refer to the real latest
+  // recommendation instead of a constant.
+  setLatestCrop(result);
+  return result;
 }
 
 export default { recommendCrop };

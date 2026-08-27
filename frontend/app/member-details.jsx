@@ -11,7 +11,6 @@ import { Spacing, Radius, Typography, CardBase, Shadow, FontSize } from '../cons
 import { formatCurrency } from '../utils/currency';
 import { formatDate } from '../utils/datetime';
 import { getMemberById } from '../services/memberService';
-import { transactions } from '../data/mockFinanceData';
 
 /** Repayment status tones, matching MemberCard. */
 const STATUS_TONES = {
@@ -51,7 +50,7 @@ export default function MemberDetailsScreen() {
 
   // The member's own rows out of the group ledger.
   const memberTransactions = member
-    ? transactions.filter((txn) => txn.member === member.name).slice(0, 3)
+    ? (member.history || []).slice(0, 3)
     : [];
 
   return (

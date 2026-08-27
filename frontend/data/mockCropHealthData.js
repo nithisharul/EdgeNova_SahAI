@@ -7,11 +7,20 @@
  * register, shaped the way a backend endpoint would eventually return them.
  * The screen wording says the same thing so a demo cannot be misread.
  *
- * Plot names match data/mockLandData.js, and the crop matches the crop
- * recommendation in services/cropService.js.
+ * Plot names match data/mockLandData.js.
+ *
+ * SAMPLE CONTENT. Nothing here is stored in the SahAI database -- there is no
+ * crop-health survey table and no land register behind the API. The screens
+ * that read this file show a Preview banner saying exactly that, so these
+ * figures cannot be mistaken for the group's records.
+ *
+ * Self-contained on purpose: it used to import the crop service's canned
+ * recommendation, which stopped existing once that service started calling
+ * the real model.
  */
 
-import { MOCK_RECOMMENDATION as CROP } from '../services/cropService';
+/** Placeholder crop for the sample plots below. */
+const CROP = { crop: 'Rice' };
 
 /**
  * Share of the monitored area in each band, so the three add up to 100.

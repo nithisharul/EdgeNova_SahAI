@@ -23,7 +23,7 @@ import {
   welcomeMessage,
   suggestedQuestions,
   errorResponse,
-} from '../../data/mockAssistantData';
+} from '../../data/assistantPresets';
 
 /**
  * SahAI Assistant.
