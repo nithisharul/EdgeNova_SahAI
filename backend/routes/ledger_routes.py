@@ -6,9 +6,10 @@ GET  /ledger/verify  -> walk the chain and confirm nothing was altered
 GET  /ledger/all     -> raw ledger entries
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from backend.auth import require_roles
 from backend.ledger import add_entry, verify_chain, get_all_entries
 
 router = APIRouter(prefix="/ledger", tags=["ledger"])
@@ -21,7 +22,11 @@ class LedgerAddRequest(BaseModel):
 
 
 @router.post("/add")
-def ledger_add(payload: LedgerAddRequest):
+def ledger_add(
+    payload: LedgerAddRequest,
+    current_user=Depends(require_roles("admin", "treasurer")),
+):
+    _ = current_user
     entry = add_entry(payload.member_id, payload.entry_type, payload.amount)
     return {
         "id": entry.id,
@@ -34,11 +39,13 @@ def ledger_add(payload: LedgerAddRequest):
 
 
 @router.get("/verify")
-def ledger_verify():
+def ledger_verify(current_user=Depends(require_roles("admin", "treasurer"))):
+    _ = current_user
     valid, broken_id = verify_chain()
     return {"valid": valid, "broken_entry_id": broken_id}
 
 
 @router.get("/all")
-def ledger_all():
+def ledger_all(current_user=Depends(require_roles("admin", "treasurer"))):
+    _ = current_user
     return get_all_entries()

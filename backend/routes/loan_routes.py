@@ -7,8 +7,10 @@ formula -- swap in the trained XGBoost model (models/loan_model.json,
 from models/train_loan_model.py) before your demo for the real version.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+
+from backend.auth import require_roles
 
 router = APIRouter(tags=["loan"])
 
@@ -19,7 +21,11 @@ class LoanRequest(BaseModel):
 
 
 @router.post("/request-loan")
-def request_loan(payload: LoanRequest):
+def request_loan(
+    payload: LoanRequest,
+    current_user=Depends(require_roles("admin", "treasurer")),
+):
+    _ = current_user
     risk_score = max(0.0, min(
         1.0,
         (payload.amount / 5000) * 0.5 + (1 - payload.savings_consistency) * 0.5,

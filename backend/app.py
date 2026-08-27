@@ -17,7 +17,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.ledger import init_db
-from backend.routes import crop_routes, fertilizer_routes, loan_routes, ledger_routes, portfolio_routes
+from backend.routes import auth_routes, crop_routes, fertilizer_routes, loan_routes, ledger_routes, portfolio_routes
 
 app = FastAPI(title="sahAI API", version="0.1.0")
 
@@ -34,6 +34,7 @@ def on_startup():
     init_db()
 
 
+app.include_router(auth_routes.router)
 app.include_router(crop_routes.router)
 app.include_router(fertilizer_routes.router)
 app.include_router(loan_routes.router)
