@@ -87,7 +87,7 @@ def main():
     X_train_t, y_train_t = X_train_t.to(device), y_train_t.to(device)
     X_test_t, y_test_t = X_test_t.to(device), y_test_t.to(device)
 
-    epochs = 100
+    epochs = 500
     for epoch in range(1, epochs + 1):
         model.train()
         optimizer.zero_grad()
