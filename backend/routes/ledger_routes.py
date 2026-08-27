@@ -8,6 +8,7 @@ GET  /ledger/all     -> raw ledger entries
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from typing import Literal
 
 from backend.ledger import add_entry, verify_chain, get_all_entries
 from backend.auth import STAFF_ROLES, get_current_user, require_treasurer
@@ -17,9 +18,8 @@ router = APIRouter(prefix="/ledger", tags=["ledger"])
 
 class LedgerAddRequest(BaseModel):
     member_id: str
-    entry_type: str  # "savings_deposit" | "loan_disbursed" | "loan_repayment"
+    entry_type: Literal["savings_deposit", "loan_disbursed", "loan_repayment"]
     amount: float
-
 
 @router.post("/add")
 def ledger_add(payload: LedgerAddRequest, user: dict = Depends(get_current_user)):

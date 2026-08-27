@@ -1,6 +1,10 @@
 """
 User storage -- member_id, name, hashed password (PIN), and role
-("member" or "treasurer"). Lives in the same SQLite DB as the ledger.
+("member", "treasurer" or "admin"). Lives in the same SQLite DB as the ledger.
+
+NOTE: the role CHECK constraint below is created by CREATE TABLE IF NOT EXISTS,
+which does NOT alter an already-existing table. If you are adding a role to an
+existing database, delete backend/database.db and let it rebuild.
 """
 
 import sqlite3
@@ -28,25 +32,14 @@ def get_connection():
 
 def init_users_db():
     conn = get_connection()
-    existing_schema = conn.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'"
-    ).fetchone()
-    if existing_schema and "'admin'" not in existing_schema["sql"]:
-        conn.execute("ALTER TABLE users RENAME TO users_legacy")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             member_id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             password_hash TEXT NOT NULL,
-            role TEXT NOT NULL CHECK (role IN ('admin', 'member', 'treasurer'))
+            role TEXT NOT NULL CHECK (role IN ('member', 'treasurer', 'admin'))
         )
     """)
-    if existing_schema and "'admin'" not in existing_schema["sql"]:
-        conn.execute("""
-            INSERT INTO users (member_id, name, password_hash, role)
-            SELECT member_id, name, password_hash, role FROM users_legacy
-        """)
-        conn.execute("DROP TABLE users_legacy")
     conn.commit()
     conn.close()
 

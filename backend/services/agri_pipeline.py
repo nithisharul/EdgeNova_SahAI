@@ -41,6 +41,7 @@ import os
 from typing import Optional
 
 import joblib
+import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -219,6 +220,83 @@ def predict_crop(payload: dict, top_k: int = 3) -> dict:
         for p, i in zip(top.values, top.indices)
     ]
     return {"crop": alts[0]["crop"], "confidence": alts[0]["confidence"], "alternatives": alts}
+
+
+# Plain-language names for the model's 7 inputs, for explanations.
+FEATURE_LABELS = {
+    "N": "nitrogen in the soil",
+    "P": "phosphorus in the soil",
+    "K": "potassium in the soil",
+    "temperature": "temperature",
+    "humidity": "humidity",
+    "ph": "soil pH",
+    "rainfall": "rainfall",
+}
+
+
+def explain_crop_prediction(payload: dict, top_k: int = 3) -> dict:
+    """Why did the model pick this crop?
+
+    Uses gradient x input attribution: how much does the score for the winning
+    crop change as each input is nudged? Large magnitude means the input
+    mattered. Sign tells you the direction - positive means this value pushed
+    the model TOWARDS this crop, negative means it pushed away despite the crop
+    still winning overall.
+
+    This is a genuine attribution over the trained network, not a hand-written
+    rule. But it explains the MODEL, not agronomy: it says which numbers drove
+    the output, not why that crop is agriculturally right for the field.
+    """
+    b = load_crop_model()
+    row = pd.DataFrame([{f: float(payload[f]) for f in CROP_FEATURES}])
+    x_scaled = b["scaler"].transform(row.values)
+
+    x = torch.tensor(x_scaled, dtype=torch.float32, requires_grad=True)
+    logits = b["model"](x)
+    probs = torch.softmax(logits, dim=1)[0]
+    pred_idx = int(probs.argmax())
+
+    b["model"].zero_grad()
+    logits[0, pred_idx].backward()
+
+    # gradient x input, in scaled space, so features are comparable
+    attribution = (x.grad[0] * x[0]).detach().numpy()
+    total = float(np.abs(attribution).sum()) or 1.0
+
+    factors = []
+    for name, attr, raw in zip(CROP_FEATURES, attribution, row.values[0]):
+        factors.append({
+            "feature": name,
+            "label": FEATURE_LABELS[name],
+            "value": round(float(raw), 2),
+            "influence": round(float(abs(attr) / total), 4),
+            "direction": "supports" if attr > 0 else "counts against",
+        })
+    factors.sort(key=lambda f: f["influence"], reverse=True)
+
+    crop = b["encoder"].classes_[pred_idx]
+    top = factors[:top_k]
+    supporting = [f for f in top if f["direction"] == "supports"]
+
+    if supporting:
+        phrase = " and ".join(f"{f['label']} ({f['value']})" for f in supporting[:2])
+        summary = f"{crop.title()} was recommended mainly because of your {phrase}."
+    else:
+        summary = (
+            f"{crop.title()} scored highest overall, but no single input strongly "
+            f"favoured it - the recommendation is a close call."
+        )
+
+    return {
+        "summary": summary,
+        "top_factors": top,
+        "all_factors": factors,
+        "method": "gradient x input attribution",
+        "caveat": (
+            "This explains which inputs drove the model's output. It is not "
+            "agronomic advice about why the crop suits your field."
+        ),
+    }
 
 
 def map_crop_to_fertilizer_crop(crop: str) -> dict:
