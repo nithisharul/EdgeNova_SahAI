@@ -16,7 +16,7 @@ router = APIRouter(tags=["portfolio"])
 
 @router.get("/member/{member_id}/portfolio")
 def member_portfolio(member_id: str, user: dict = Depends(get_current_user)):
-    # A member can only see their own portfolio; a treasurer can see anyone's.
+    # A member can only see their own portfolio; staff can see anyone's.
     if user["role"] not in STAFF_ROLES and user["member_id"] != member_id:
         raise HTTPException(status_code=403, detail="You can only view your own portfolio.")
 

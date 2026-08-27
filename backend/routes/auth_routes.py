@@ -4,27 +4,28 @@ Auth routes.
 POST /auth/register -> create a member or treasurer account (PIN-based
                         password, simple for a hackathon demo)
 POST /auth/login     -> exchange member_id + password for a JWT token
+GET  /auth/me        -> return the authenticated user's token claims
 """
 
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from backend.auth import create_token
+from backend.auth import create_token, get_current_user
 from backend.models.user import create_user, authenticate
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 # Must stay in sync with the CHECK constraint in backend/models/user.py.
-VALID_ROLES = ("member", "treasurer", "admin")
+PUBLIC_REGISTRATION_ROLES = ("member", "treasurer")
 
 
 class RegisterRequest(BaseModel):
     member_id: str
     name: str
     password: str
-    role: Literal["member", "treasurer", "admin"]
+    role: Literal["member", "treasurer"]
 
 
 class LoginRequest(BaseModel):
@@ -34,10 +35,10 @@ class LoginRequest(BaseModel):
 
 @router.post("/register")
 def register(payload: RegisterRequest):
-    if payload.role not in VALID_ROLES:
+    if payload.role not in PUBLIC_REGISTRATION_ROLES:
         raise HTTPException(
             status_code=400,
-            detail=f"role must be one of: {', '.join(sorted(VALID_ROLES))}",
+            detail=f"role must be one of: {', '.join(sorted(PUBLIC_REGISTRATION_ROLES))}",
         )
 
     try:
@@ -57,3 +58,8 @@ def login(payload: LoginRequest):
 
     token = create_token(user.member_id, user.role)
     return {"member_id": user.member_id, "role": user.role, "token": token}
+
+
+@router.get("/me")
+def current_user(user: dict = Depends(get_current_user)):
+    return user

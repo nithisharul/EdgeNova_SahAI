@@ -2,9 +2,8 @@
 User storage -- member_id, name, hashed password (PIN), and role
 ("member", "treasurer" or "admin"). Lives in the same SQLite DB as the ledger.
 
-NOTE: the role CHECK constraint below is created by CREATE TABLE IF NOT EXISTS,
-which does NOT alter an already-existing table. If you are adding a role to an
-existing database, delete backend/database.db and let it rebuild.
+Existing databases are migrated in init_users_db() when their role constraint
+does not yet include admin.
 """
 
 import sqlite3
@@ -31,6 +30,12 @@ def get_connection():
 
 def init_users_db():
     conn = get_connection()
+    existing_schema = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'"
+    ).fetchone()
+    needs_migration = existing_schema and "'admin'" not in existing_schema["sql"]
+    if needs_migration:
+        conn.execute("ALTER TABLE users RENAME TO users_legacy")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             member_id TEXT PRIMARY KEY,
@@ -39,11 +44,19 @@ def init_users_db():
             role TEXT NOT NULL CHECK (role IN ('member', 'treasurer', 'admin'))
         )
     """)
+    if needs_migration:
+        conn.execute("""
+            INSERT INTO users (member_id, name, password_hash, role)
+            SELECT member_id, name, password_hash, role FROM users_legacy
+        """)
+        conn.execute("DROP TABLE users_legacy")
     conn.commit()
     conn.close()
 
 
 def create_user(member_id: str, name: str, password: str, role: str) -> User:
+    if role not in ("admin", "member", "treasurer"):
+        raise ValueError("role must be 'admin', 'member', or 'treasurer'")
     conn = get_connection()
     existing = conn.execute("SELECT member_id FROM users WHERE member_id = ?", (member_id,)).fetchone()
     if existing:

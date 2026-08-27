@@ -24,7 +24,7 @@ class LedgerAddRequest(BaseModel):
 @router.post("/add")
 def ledger_add(payload: LedgerAddRequest, user: dict = Depends(get_current_user)):
     # Any logged-in user can add a transaction for themself; a treasurer
-    # can add on behalf of any member.
+    # staff can add on behalf of any member.
     if user["role"] not in STAFF_ROLES and user["member_id"] != payload.member_id:
         from fastapi import HTTPException
         raise HTTPException(status_code=403, detail="You can only log transactions for your own account.")

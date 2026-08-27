@@ -6,8 +6,8 @@ hashing and PyJWT for session tokens. Roles are "admin", "member", and
 "treasurer".
 
 NOTE: for a hackathon this is real, working auth -- not decorative --
-but the JWT secret below is hardcoded for simplicity. In any real
-deployment, move SECRET_KEY to an environment variable.
+and the JWT secret is read from SAHAI_SECRET_KEY. Set that variable in
+every deployed environment.
 """
 
 import hashlib

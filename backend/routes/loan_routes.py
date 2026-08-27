@@ -26,7 +26,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.auth import get_current_user
+from backend.auth import STAFF_ROLES, get_current_user
 from backend.ledger import get_all_entries
 
 router = APIRouter(tags=["loan"])
@@ -150,9 +150,9 @@ def request_loan(payload: LoanRequest, user: dict = Depends(get_current_user)):
             detail="Loan model not trained yet. Run models/train_loan_model.py first.",
         )
 
-    # A member always scores herself. Only a treasurer may name another member.
+    # A member always scores herself. Staff may name another member.
     if payload.member_id and payload.member_id != user["member_id"]:
-        if user["role"] != "treasurer":
+        if user["role"] not in STAFF_ROLES:
             raise HTTPException(
                 status_code=403,
                 detail="You can only request a loan assessment for your own account.",
