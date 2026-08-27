@@ -1,35 +1,23 @@
 """
-Crop Advisor route.
+Crop Advisor routes.
 
-POST /predict-crop -> recommends a crop + fertilizer guidance from
-soil/climate parameters, using the trained PyTorch MLP
-(models/train_crop_model.py -> models/crop_model.pt).
+POST /predict-crop    -> recommends a crop from soil/climate parameters
+POST /crop-advisory   -> full chain: crop -> fertilizer, in one call
+
+All model loading and the crop -> fertilizer vocabulary mapping live in
+backend/services/agri_pipeline.py. This file only handles HTTP concerns.
+
+The old FERTILIZER_LOOKUP dict that used to live here has been removed: it was
+a third, competing source of fertilizer advice alongside the trained model and
+the guideline table. There is now exactly one path per crop.
 """
 
-import os
-
-import joblib
-import numpy as np
-import torch
-import torch.nn as nn
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from backend.services import agri_pipeline as agri
 
 router = APIRouter(tags=["crop"])
-
-MODELS_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "models",
-)
-FEATURES = ["N", "P", "K", "temperature", "humidity", "ph", "rainfall"]
-
-FERTILIZER_LOOKUP = {
-    "rice": "80kg N, 40kg P, 40kg K",
-    "maize": "120kg N, 60kg P, 40kg K",
-    "chickpea": "20kg N, 60kg P, 20kg K",
-    "wheat": "100kg N, 50kg P, 25kg K",
-    # extend with your full crop list
-}
 
 
 class CropInput(BaseModel):
@@ -42,61 +30,64 @@ class CropInput(BaseModel):
     rainfall: float
 
 
-class CropMLP(nn.Module):
-    def __init__(self, in_dim, num_classes):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(in_dim, 64), nn.ReLU(),
-            nn.Linear(64, 32), nn.ReLU(),
-            nn.Linear(32, num_classes),
-        )
-
-    def forward(self, x):
-        return self.net(x)
-
-
-def load_crop_model():
-    scaler_path = os.path.join(MODELS_DIR, "crop_scaler.pkl")
-    encoder_path = os.path.join(MODELS_DIR, "crop_label_encoder.pkl")
-    model_path = os.path.join(MODELS_DIR, "crop_model.pt")
-
-    if not (os.path.exists(scaler_path) and os.path.exists(encoder_path) and os.path.exists(model_path)):
-        return None, None, None
-
-    scaler = joblib.load(scaler_path)
-    encoder = joblib.load(encoder_path)
-    model = CropMLP(in_dim=len(FEATURES), num_classes=len(encoder.classes_))
-    model.load_state_dict(torch.load(model_path, map_location="cpu"))
-    model.eval()
-    return model, scaler, encoder
-
-
-# Loaded once at import time -- if it's None, the model just hasn't been
-# trained yet (run models/train_crop_model.py).
-crop_model, crop_scaler, crop_encoder = load_crop_model()
+class AdvisoryInput(CropInput):
+    soil_type: str = Field("Loamy", description="Sandy | Loamy | Black | Red | Clayey")
+    moisture: float = Field(45.0, description="Soil moisture %")
+    # Fertilizer-model soil test values. Separate from N/P/K above - the two
+    # datasets are on different measurement scales, so they are NOT reused.
+    fert_nitrogen: float | None = None
+    fert_potassium: float | None = None
+    fert_phosphorous: float | None = None
 
 
 @router.post("/predict-crop")
 def predict_crop(payload: CropInput):
-    if crop_model is None:
+    try:
+        result = agri.predict_crop(payload.model_dump())
+    except FileNotFoundError:
         raise HTTPException(
             status_code=503,
             detail="Crop model not trained yet. Run models/train_crop_model.py first.",
         )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    x = np.array([[getattr(payload, f) for f in FEATURES]], dtype=np.float32)
-    x_scaled = crop_scaler.transform(x)
-
-    with torch.no_grad():
-        logits = crop_model(torch.tensor(x_scaled, dtype=torch.float32))
-        pred_idx = logits.argmax(dim=1).item()
-        confidence = torch.softmax(logits, dim=1)[0, pred_idx].item()
-
-    crop_name = crop_encoder.inverse_transform([pred_idx])[0]
-    fertilizer = FERTILIZER_LOOKUP.get(crop_name.lower(), "See local agri-extension office for exact dosage")
-
+    mapping = agri.map_crop_to_fertilizer_crop(result["crop"])
     return {
-        "recommended_crop": crop_name,
-        "confidence": round(confidence, 3),
-        "fertilizer_guidance": fertilizer,
+        "recommended_crop": result["crop"],
+        "confidence": result["confidence"],
+        "alternatives": result["alternatives"],
+        "fertilizer_available": (
+            mapping["supported"]
+            or result["crop"].lower() in agri.GUIDELINE_FERTILIZER_TABLE
+        ),
     }
+
+
+@router.post("/crop-advisory")
+def crop_advisory(payload: AdvisoryInput):
+    """Crop + fertilizer in one call - what the app's home screen should hit."""
+    crop_payload = {
+        f: getattr(payload, f)
+        for f in ["N", "P", "K", "temperature", "humidity", "ph", "rainfall"]
+    }
+
+    fert_npk = None
+    if None not in (payload.fert_nitrogen, payload.fert_potassium, payload.fert_phosphorous):
+        fert_npk = {
+            "Nitrogen": payload.fert_nitrogen,
+            "Potassium": payload.fert_potassium,
+            "Phosphorous": payload.fert_phosphorous,
+        }
+
+    try:
+        return agri.full_advisory(
+            crop_payload,
+            soil_type=payload.soil_type,
+            moisture=payload.moisture,
+            fert_npk=fert_npk,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="Models not trained yet.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
