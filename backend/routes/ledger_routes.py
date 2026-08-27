@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from backend.ledger import add_entry, verify_chain, get_all_entries
-from backend.auth import get_current_user, require_treasurer
+from backend.auth import STAFF_ROLES, get_current_user, require_treasurer
 
 router = APIRouter(prefix="/ledger", tags=["ledger"])
 
@@ -25,7 +25,7 @@ class LedgerAddRequest(BaseModel):
 def ledger_add(payload: LedgerAddRequest, user: dict = Depends(get_current_user)):
     # Any logged-in user can add a transaction for themself; a treasurer
     # can add on behalf of any member.
-    if user["role"] != "treasurer" and user["member_id"] != payload.member_id:
+    if user["role"] not in STAFF_ROLES and user["member_id"] != payload.member_id:
         from fastapi import HTTPException
         raise HTTPException(status_code=403, detail="You can only log transactions for your own account.")
 

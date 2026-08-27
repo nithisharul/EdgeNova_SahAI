@@ -2,9 +2,8 @@
 Core auth logic.
 
 Uses PBKDF2 (stdlib hashlib, no extra native dependencies) for password
-hashing and PyJWT for session tokens. Roles are "member" or "treasurer" --
-some endpoints (ledger verification, group summary, other members'
-portfolios) are treasurer-only.
+hashing and PyJWT for session tokens. Roles are "admin", "member", and
+"treasurer".
 
 NOTE: for a hackathon this is real, working auth -- not decorative --
 but the JWT secret below is hardcoded for simplicity. In any real
@@ -14,16 +13,18 @@ deployment, move SECRET_KEY to an environment variable.
 import hashlib
 import hmac
 import os
-import time
 import secrets
+from datetime import datetime, timedelta, timezone
 
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-SECRET_KEY = "dev-only-secret-change-me"  # TODO: move to env var before any real deployment
+SECRET_KEY = os.getenv("SAHAI_SECRET_KEY", "dev-only-secret-change-me-32-bytes")
 ALGORITHM = "HS256"
-TOKEN_EXPIRY_SECONDS = 60 * 60 * 12  # 12 hours
+TOKEN_EXPIRY_SECONDS = 60 * 30
+ROLES = frozenset(("admin", "treasurer", "member"))
+STAFF_ROLES = frozenset(("admin", "treasurer"))
 
 security_scheme = HTTPBearer()
 
@@ -52,7 +53,7 @@ def create_token(member_id: str, role: str) -> str:
     payload = {
         "member_id": member_id,
         "role": role,
-        "exp": time.time() + TOKEN_EXPIRY_SECONDS,
+        "exp": datetime.now(timezone.utc) + timedelta(seconds=TOKEN_EXPIRY_SECONDS),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -74,11 +75,24 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
     return decode_token(token)
 
 
-def require_treasurer(user: dict = Depends(get_current_user)) -> dict:
-    """Use as: Depends(require_treasurer) -- requires a valid token AND role=='treasurer'."""
-    if user.get("role") != "treasurer":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This action requires treasurer access.",
-        )
-    return user
+def require_roles(*allowed_roles: str):
+    """Build a dependency that requires an authenticated user in one role."""
+    invalid_roles = set(allowed_roles) - ROLES
+    if invalid_roles:
+        raise ValueError(f"Unknown role(s): {', '.join(sorted(invalid_roles))}")
+
+    def dependency(user: dict = Depends(get_current_user)) -> dict:
+        if user.get("role") not in allowed_roles:
+            roles = " or ".join(allowed_roles)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"This action requires {roles} access.",
+            )
+        return user
+
+    return dependency
+
+
+require_treasurer = require_roles(*STAFF_ROLES)
+require_admin = require_roles("admin")
+require_member = require_roles("member")
