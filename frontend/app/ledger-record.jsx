@@ -11,7 +11,7 @@ import Colors from '../constants/Colors';
 import { Spacing, Radius, Typography, CardBase, Shadow, FontSize } from '../constants/Theme';
 import { formatCurrency } from '../utils/currency';
 import { formatDateTime } from '../utils/datetime';
-import { GENESIS_HASH } from '../data/mockLedgerData';
+import { GENESIS_HASH } from '../services/ledgerService';
 import { getLedgerRecordById } from '../services/ledgerService';
 
 /**

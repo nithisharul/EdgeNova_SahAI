@@ -2,6 +2,7 @@ venv/
 __pycache__/
 *.pyc
 backend/database.db
+backend/database.backup-*.db
 data/raw/*.csv
 models/*.pt
 models/*.pkl

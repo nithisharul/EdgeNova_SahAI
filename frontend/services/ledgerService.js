@@ -1,31 +1,37 @@
 import Config from '../constants/Config';
-import {
-  ledgerRecords,
-  ledgerSummary,
-  verifiedResult,
-  tamperedResult,
-} from '../data/mockLedgerData';
+import { getJson } from './apiClient';
 
 /**
  * Secure SHG ledger service.
  *
- * This module is the seam between the app and the backend. No hashing, no
- * chain walking and no verification logic lives here or anywhere else in the
- * frontend -- those belong to ledger.py behind
- * Config.API_BASE_URL + Config.ENDPOINTS.ledgerVerify. Today every function
- * resolves canned data shaped like the eventual API payload, so screens will
- * not change when the real endpoints are wired up.
+ * No hashing, no chain walking and no verification logic lives here or
+ * anywhere else in the frontend. GET /ledger/all returns the stored chain and
+ * GET /ledger/verify recomputes every SHA-256 hash in backend/ledger.py and
+ * reports the verdict. This module only reshapes those responses.
+ *
+ * The verdict is rendered exactly as the backend returns it. If the backend
+ * reports a broken chain the UI shows a broken chain -- there is no path here
+ * that can force a VERIFIED result.
  */
 
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+export const GENESIS_HASH =
+  '0000000000000000000000000000000000000000000000000000000000000000';
+
+/** Ledger entry_type -> the label and styling vocabulary the cards use. */
+const KIND = {
+  savings_deposit: { kind: 'savings', label: 'Savings Deposit', direction: 'in' },
+  loan_disbursed: { kind: 'disbursement', label: 'Loan Disbursement', direction: 'out' },
+  loan_repayment: { kind: 'repayment', label: 'Loan Repayment', direction: 'in' },
+};
 
 /**
- * Demo modes for the hackathon walkthrough.
+ * Layout simulation modes, opt-in via /ledger?demo=tampered|empty|error.
  *
- * 'verified' is the default and the only state a real user sees. The others
- * exist so the tamper, empty and failure screens can be shown on demand:
- * open /ledger?demo=tampered (or empty / error) during a demo, or change
- * demoMode below. Nothing in the UI advertises them.
+ * These do NOT fake data on the normal path: 'verified' -- the default and
+ * the only state anyone reaches without editing the URL -- calls the real
+ * backend. The others exist so the tamper, empty and failure layouts can be
+ * checked without corrupting a real database, and each one is reported to the
+ * screen as a simulation rather than as a backend verdict.
  */
 const MODES = ['verified', 'tampered', 'empty', 'error'];
 
@@ -39,22 +45,67 @@ export function getLedgerDemoMode() {
   return demoMode;
 }
 
-/** Records for the current demo mode, newest first. */
-function recordsForMode() {
-  if (demoMode === 'empty') return [];
-  if (demoMode === 'tampered') {
-    return ledgerRecords.map((record) =>
-      record.id === tamperedResult.tamperedRecordId ? { ...record, verified: false } : record
-    );
-  }
-  return ledgerRecords;
+/** One backend ledger row in the shape the records list renders. */
+function toRecord(row, names) {
+  const meta = KIND[row.entry_type] || {
+    kind: row.entry_type,
+    label: row.entry_type,
+    direction: 'in',
+  };
+  return {
+    id: `TXN-${String(row.id).padStart(3, '0')}`,
+    sequence: row.id,
+    memberName: names[row.member_id] || row.member_id,
+    memberId: row.member_id,
+    type: meta.label,
+    kind: meta.kind,
+    direction: meta.direction,
+    amount: row.amount,
+    timestamp: new Date(row.timestamp * 1000).toISOString(),
+    note: null, // the ledger stores no free-text note
+    verified: true, // per-row status comes from the chain check below
+    currentHash: row.entry_hash,
+    previousHash: row.prev_hash,
+  };
 }
 
-function summaryForMode() {
-  if (demoMode === 'empty') {
-    return { totalRecords: 0, savingsEntries: 0, loanEntries: 0, repaymentEntries: 0 };
-  }
-  return ledgerSummary;
+function summarise(records) {
+  return {
+    totalRecords: records.length,
+    savingsEntries: records.filter((r) => r.kind === 'savings').length,
+    loanEntries: records.filter((r) => r.kind === 'disbursement').length,
+    repaymentEntries: records.filter((r) => r.kind === 'repayment').length,
+  };
+}
+
+/** Fetch the chain plus the member names the rows refer to. */
+async function loadChain() {
+  const [rows, membersBody] = await Promise.all([
+    getJson(Config.ENDPOINTS.ledgerAll),
+    getJson(Config.ENDPOINTS.members),
+  ]);
+
+  const names = {};
+  (membersBody.members || []).forEach((m) => {
+    names[m.member_id] = m.name;
+  });
+
+  // Newest first, which is how every screen reads it.
+  return (rows || []).map((row) => toRecord(row, names)).reverse();
+}
+
+/** Backend verify response -> the integrity shape the screens render. */
+function toIntegrity(result, total) {
+  const brokenId = result.broken_entry_id;
+  return {
+    verified: !!result.valid,
+    totalRecords: total,
+    // A broken chain stops being trustworthy at the first bad entry.
+    checkedRecords: result.valid ? total : Math.max(total - 1, 0),
+    tamperedRecordId: brokenId == null ? null : `TXN-${String(brokenId).padStart(3, '0')}`,
+    verifiedAt: new Date().toISOString(),
+    simulated: false,
+  };
 }
 
 /**
@@ -62,71 +113,85 @@ function summaryForMode() {
  * @returns {Promise<{records: object[], summary: object, integrity: object}>}
  */
 export async function getLedgerRecords() {
-  await wait(Config.MOCK_DELAY);
-
-  if (!Config.USE_MOCK_DATA) {
-    // Reached once the backend is live; wired up in a later phase.
-    throw new Error('Unable to load ledger records.');
-  }
-
   if (demoMode === 'error') {
     throw new Error('Unable to load ledger records.');
   }
+  if (demoMode === 'empty') {
+    return {
+      records: [],
+      summary: summarise([]),
+      integrity: {
+        verified: true,
+        totalRecords: 0,
+        checkedRecords: 0,
+        tamperedRecordId: null,
+        verifiedAt: new Date().toISOString(),
+        simulated: true,
+      },
+    };
+  }
+
+  const records = await loadChain();
+
+  if (demoMode === 'tampered') {
+    // Layout check only: mark the middle record and say so.
+    const target = records[Math.floor(records.length / 2)];
+    return {
+      records: records.map((r) => (r.id === target?.id ? { ...r, verified: false } : r)),
+      summary: summarise(records),
+      integrity: {
+        verified: false,
+        totalRecords: records.length,
+        checkedRecords: Math.max(records.length - 1, 0),
+        tamperedRecordId: target?.id ?? null,
+        verifiedAt: new Date().toISOString(),
+        simulated: true,
+      },
+    };
+  }
+
+  const result = await getJson(Config.ENDPOINTS.ledgerVerify);
+  const integrity = toIntegrity(result, records.length);
 
   return {
-    records: recordsForMode(),
-    summary: summaryForMode(),
-    integrity: integrityForMode(),
+    records: records.map((r) =>
+      integrity.tamperedRecordId && r.id === integrity.tamperedRecordId
+        ? { ...r, verified: false }
+        : r
+    ),
+    summary: summarise(records),
+    integrity,
   };
-}
-
-/** Integrity result as the backend would report it for the current mode. */
-function integrityForMode() {
-  if (demoMode === 'tampered') return tamperedResult;
-  if (demoMode === 'empty') {
-    return { ...verifiedResult, totalRecords: 0, checkedRecords: 0 };
-  }
-  return verifiedResult;
 }
 
 /**
  * Runs an integrity check across the chain.
- * @returns {Promise<{verified: boolean, totalRecords: number,
- *                    checkedRecords: number, tamperedRecordId: ?string,
- *                    verifiedAt: string}>}
+ *
+ * The verdict is the backend's; this function only reshapes it.
  */
 export async function verifyLedger() {
-  await wait(Config.MOCK_DELAY);
-
-  if (!Config.USE_MOCK_DATA) {
-    throw new Error('Ledger verification is not connected yet.');
-  }
-
   if (demoMode === 'error') {
     throw new Error('Ledger verification could not be completed.');
   }
 
-  // The verdict is returned as-is: the frontend never decides it.
-  return { ...integrityForMode(), verifiedAt: new Date().toISOString() };
+  const { integrity } = await getLedgerRecords();
+  return integrity;
 }
 
 /**
  * Single record for the detail screen.
  * @param {string} id - e.g. "TXN-024".
- * @returns {Promise<object>} the record, including its stored hashes.
  */
 export async function getLedgerRecordById(id) {
-  await wait(Math.min(Config.MOCK_DELAY, 400));
-
   if (demoMode === 'error') {
     throw new Error('Unable to load this ledger record.');
   }
 
-  const record = recordsForMode().find((entry) => entry.id === id);
+  const { records } = await getLedgerRecords();
+  const record = records.find((entry) => entry.id === id);
   if (!record) {
     throw new Error('This ledger record could not be found.');
   }
-
   return record;
 }
 

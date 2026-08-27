@@ -1,33 +1,28 @@
 """
 Fertilizer Recommender route.
 
-POST /recommend-fertilizer -> recommends a fertilizer type from soil
-temperature/humidity/moisture/N-P-K plus soil type and crop type,
-using the trained PyTorch MLP
-(models/train_fertilizer_model.py -> models/fertilizer_model.pt).
+POST /recommend-fertilizer -> recommends a fertilizer grade from soil
+temperature/humidity/moisture/N-P-K plus soil type and crop type.
 
-This is a separate model from the crop advisor's built-in
-FERTILIZER_LOOKUP dict in crop_routes.py -- that lookup is a fallback
-for when this model hasn't been trained yet, or for crops missing from
-the Fertilizer Prediction dataset.
+Model loading lives in backend/services/agri_pipeline.py, which is the single
+place that knows the saved artifact format (fertilizer_model.pth +
+fertilizer_preprocessor.joblib).
+
+crop_type accepts either vocabulary:
+  * the fertilizer dataset's own names ("Paddy", "Maize", "Pulses", ...)
+  * a crop-model output name ("rice", "chickpea", "banana", ...)
+Crop-model names are translated first. Crops outside the model's vocabulary
+fall back to the guideline table and are tagged source="guideline_table".
 """
 
-import os
-
-import joblib
-import numpy as np
-import torch
-import torch.nn as nn
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from backend.services import agri_pipeline as agri
 
 router = APIRouter(tags=["fertilizer"])
 
-MODELS_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "models",
-)
-NUMERIC_FEATURES = ["temperature", "humidity", "moisture", "nitrogen", "potassium", "phosphorous"]
+VALID_SOIL_TYPES = ["Sandy", "Loamy", "Black", "Red", "Clayey"]
 
 
 class FertilizerInput(BaseModel):
@@ -37,89 +32,97 @@ class FertilizerInput(BaseModel):
     nitrogen: float
     potassium: float
     phosphorous: float
-    soil_type: str
-    crop_type: str
+    soil_type: str = Field(..., description=f"One of: {VALID_SOIL_TYPES}")
+    crop_type: str = Field(..., description="Fertilizer-dataset name or crop-model name")
 
 
-class FertilizerMLP(nn.Module):
-    def __init__(self, in_dim, num_classes):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(in_dim, 64), nn.ReLU(),
-            nn.Linear(64, 32), nn.ReLU(),
-            nn.Linear(32, num_classes),
-        )
+@router.get("/fertilizer/options")
+def fertilizer_options():
+    """What the frontend should populate its dropdowns with."""
+    try:
+        bundle = agri.load_fertilizer_model()
+    except FileNotFoundError:
+        raise HTTPException(status_code=503, detail="Fertilizer model not trained yet.")
 
-    def forward(self, x):
-        return self.net(x)
+    prep = bundle["preprocessor"]
+    cat_encoder = prep.named_transformers_["cat"]
+    soil_values, crop_values = [list(c) for c in cat_encoder.categories_]
 
-
-def load_fertilizer_model():
-    paths = {
-        "scaler": os.path.join(MODELS_DIR, "fertilizer_scaler.pkl"),
-        "label_encoder": os.path.join(MODELS_DIR, "fertilizer_label_encoder.pkl"),
-        "soil_encoder": os.path.join(MODELS_DIR, "fertilizer_soil_encoder.pkl"),
-        "crop_encoder": os.path.join(MODELS_DIR, "fertilizer_crop_encoder.pkl"),
-        "model": os.path.join(MODELS_DIR, "fertilizer_model.pt"),
+    return {
+        "soil_types": soil_values,
+        "crop_types": crop_values,
+        "fertilizer_classes": bundle["classes"],
+        "guideline_only_crops": sorted(agri.GUIDELINE_FERTILIZER_TABLE.keys()),
     }
-    if not all(os.path.exists(p) for p in paths.values()):
-        return None, None, None, None, None
-
-    scaler = joblib.load(paths["scaler"])
-    label_encoder = joblib.load(paths["label_encoder"])
-    soil_encoder = joblib.load(paths["soil_encoder"])
-    crop_encoder = joblib.load(paths["crop_encoder"])
-
-    in_dim = len(NUMERIC_FEATURES) + 2  # + soil_enc + crop_enc
-    model = FertilizerMLP(in_dim=in_dim, num_classes=len(label_encoder.classes_))
-    model.load_state_dict(torch.load(paths["model"], map_location="cpu"))
-    model.eval()
-    return model, scaler, label_encoder, soil_encoder, crop_encoder
-
-
-fert_model, fert_scaler, fert_label_encoder, fert_soil_encoder, fert_crop_encoder = load_fertilizer_model()
 
 
 @router.post("/recommend-fertilizer")
 def recommend_fertilizer(payload: FertilizerInput):
-    if fert_model is None:
+    try:
+        bundle = agri.load_fertilizer_model()
+    except FileNotFoundError:
         raise HTTPException(
             status_code=503,
             detail="Fertilizer model not trained yet. Run models/train_fertilizer_model.py first.",
         )
 
-    try:
-        soil_enc = fert_soil_encoder.transform([payload.soil_type])[0]
-    except ValueError:
+    if payload.soil_type not in VALID_SOIL_TYPES:
         raise HTTPException(
             status_code=400,
-            detail=f"Unknown soil_type '{payload.soil_type}'. "
-                   f"Known values: {list(fert_soil_encoder.classes_)}",
-        )
-    try:
-        crop_enc = fert_crop_encoder.transform([payload.crop_type])[0]
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown crop_type '{payload.crop_type}'. "
-                   f"Known values: {list(fert_crop_encoder.classes_)}",
+            detail=f"Unknown soil_type '{payload.soil_type}'. Known values: {VALID_SOIL_TYPES}",
         )
 
-    x = np.array([[
-        payload.temperature, payload.humidity, payload.moisture,
-        payload.nitrogen, payload.potassium, payload.phosphorous,
-        soil_enc, crop_enc,
-    ]], dtype=np.float32)
-    x_scaled = fert_scaler.transform(x)
+    raw_crop = payload.crop_type.strip()
+    cat_encoder = bundle["preprocessor"].named_transformers_["cat"]
+    known_crop_types = list(cat_encoder.categories_[1])
 
-    with torch.no_grad():
-        logits = fert_model(torch.tensor(x_scaled, dtype=torch.float32))
-        pred_idx = logits.argmax(dim=1).item()
-        confidence = torch.softmax(logits, dim=1)[0, pred_idx].item()
+    # Already a fertilizer-dataset crop name?
+    if raw_crop in known_crop_types:
+        crop_type = raw_crop
+        approximate = False
+    else:
+        mapping = agri.map_crop_to_fertilizer_crop(raw_crop)
+        if mapping["supported"]:
+            crop_type = mapping["crop_type"]
+            approximate = mapping["approximate"]
+        else:
+            # Not model-supported - try the guideline table before giving up.
+            guideline = agri.fertilizer_from_guideline(raw_crop, payload.soil_type)
+            if guideline is not None:
+                return {
+                    "recommended_fertilizer": guideline["fertilizer"],
+                    "confidence": None,
+                    "source": "guideline_table",
+                    "note": guideline["note"],
+                    "soil_note": guideline["soil_note"],
+                    "crop_type_used": raw_crop,
+                }
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Unknown crop_type '{raw_crop}'. Known fertilizer-model crops: "
+                    f"{known_crop_types}. Guideline-table crops: "
+                    f"{sorted(agri.GUIDELINE_FERTILIZER_TABLE.keys())}"
+                ),
+            )
 
-    fertilizer_name = fert_label_encoder.inverse_transform([pred_idx])[0]
+    result = agri.recommend_fertilizer({
+        "Temparature": payload.temperature,
+        "Humidity": payload.humidity,
+        "Moisture": payload.moisture,
+        "Nitrogen": payload.nitrogen,
+        "Potassium": payload.potassium,
+        "Phosphorous": payload.phosphorous,
+        "Soil Type": payload.soil_type,
+        "Crop Type": crop_type,
+    })
 
     return {
-        "recommended_fertilizer": fertilizer_name,
-        "confidence": round(confidence, 3),
+        "recommended_fertilizer": result["fertilizer"],
+        "confidence": result["confidence"],
+        "alternatives": result["alternatives"],
+        "source": "model",
+        "crop_type_used": crop_type,
+        "mapping_is_approximate": approximate,
+        "soil_note": agri.SOIL_APPLICATION_NOTES.get(payload.soil_type),
     }

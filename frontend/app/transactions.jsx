@@ -13,7 +13,7 @@ import SecondaryButton from '../components/SecondaryButton';
 import Colors from '../constants/Colors';
 import { Spacing, Radius, Typography, FontSize } from '../constants/Theme';
 import { getTransactions } from '../services/financeService';
-import { transactionFilters } from '../data/mockFinanceData';
+import { transactionFilters } from '../data/transactionFilters';
 
 export default function TransactionsScreen() {
   const [all, setAll] = useState([]);

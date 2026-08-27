@@ -1,5 +1,6 @@
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import { router } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
 import SahaiHeader from '../../components/SahaiHeader';
 import MetricCard from '../../components/MetricCard';
 import QuickActionCard from '../../components/QuickActionCard';
@@ -11,14 +12,8 @@ import StatusBadge from '../../components/StatusBadge';
 import Colors from '../../constants/Colors';
 import { Spacing, Radius, Typography, CardBase, Shadow } from '../../constants/Theme';
 import { formatCurrency } from '../../utils/currency';
-import {
-  homeUser,
-  homeSummary,
-  ledgerStatus,
-  homeInsights,
-  recentActivities,
-  quickActions,
-} from '../../data/mockHomeData';
+import { quickActions } from '../../data/homeNavigation';
+import { getHomeDashboard } from '../../services/homeService';
 
 /** Greeting follows the farmer's day rather than a fixed string. */
 function greetingForNow(date = new Date()) {
@@ -37,7 +32,88 @@ function inPairs(items) {
   return rows;
 }
 
+/**
+ * Insight cards, built from the figures already on this screen.
+ *
+ * Nothing here is a stored recommendation -- each card restates a real number
+ * the backend returned, so an insight can never contradict the metric card
+ * directly above it. A card whose data is missing is simply not produced.
+ */
+function buildInsights(data) {
+  const cards = [];
+
+  if (data.crop) {
+    cards.push({
+      id: 'crop',
+      title: 'Field',
+      headline: data.crop.name,
+      subheadline: `${data.crop.confidence}% match`,
+      message: 'Your most recent crop recommendation for this field.',
+      icon: 'leaf',
+      tone: 'success',
+      badge: 'Crop model',
+      badgeTone: 'success',
+      route: '/crop-recommendation',
+    });
+  }
+
+  if (data.summary.availableBalance > 0) {
+    cards.push({
+      id: 'lending',
+      title: 'Fund',
+      headline: formatCurrency(data.summary.availableBalance),
+      subheadline: 'available to lend',
+      message: `${formatCurrency(data.summary.totalSavings)} saved, ${formatCurrency(
+        data.summary.activeLoans
+      )} currently lent out.`,
+      icon: 'wallet',
+      tone: 'accent',
+      badge: 'Group ledger',
+      badgeTone: 'accent',
+      route: '/finance',
+    });
+  }
+
+  if (data.summary.savingsThisMonth > 0) {
+    cards.push({
+      id: 'savings-month',
+      title: 'Fund',
+      headline: formatCurrency(data.summary.savingsThisMonth),
+      subheadline: 'saved this month',
+      message: `Recorded across ${data.summary.memberCount} members.`,
+      icon: 'trending-up',
+      tone: 'success',
+      badge: 'This month',
+      badgeTone: 'success',
+      route: '/savings',
+    });
+  }
+
+  return cards;
+}
+
 export default function HomeScreen() {
+  const [data, setData] = useState(null);
+  const [status, setStatus] = useState('loading'); // loading | ready | error
+
+  const load = useCallback(async () => {
+    setStatus('loading');
+    try {
+      setData(await getHomeDashboard());
+      setStatus('ready');
+    } catch {
+      setStatus('error');
+    }
+  }, []);
+
+  // Reload whenever the tab regains focus, so a deposit recorded elsewhere
+  // shows up here without a restart.
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
+
   const go = (route) => router.push(route);
 
   return (
@@ -46,23 +122,41 @@ export default function HomeScreen() {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.inner}>
+          {status === 'loading' && (
+            <View style={styles.stateBox}>
+              <ActivityIndicator color={Colors.secondary} />
+              <Text style={styles.stateText}>Loading your overview...</Text>
+            </View>
+          )}
+
+          {status === 'error' && (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText}>
+                Unable to load your overview right now. Please try again.
+              </Text>
+              <SecondaryButton label="Retry" icon="refresh" onPress={load} />
+            </View>
+          )}
+
+          {status === 'ready' && !!data && (
+            <>
           {/* Greeting -------------------------------------------------- */}
           <View style={styles.greetingBlock}>
             <Text style={styles.greeting}>
-              {greetingForNow()}, {homeUser.name}
+              {greetingForNow()}, {data.user.name || data.user.memberId || 'there'}
             </Text>
             <Text style={styles.greetingSub}>Here&apos;s your farm &amp; SHG overview.</Text>
             <View style={styles.greetingMeta}>
               <StatusBadge
-                label={homeUser.groupName}
+                label={data.user.groupName}
                 tone="accent"
                 icon="people-outline"
                 size="sm"
               />
               <StatusBadge
-                label={homeSummary.season}
+                label={`${data.summary.memberCount} members`}
                 tone="neutral"
-                icon="partly-sunny-outline"
+                icon="people-outline"
                 size="sm"
               />
             </View>
@@ -70,11 +164,14 @@ export default function HomeScreen() {
 
           {/* Field + Fund summary -------------------------------------- */}
           <View style={styles.metricRow}>
+            {/* The real latest recommendation from this session. Before one
+                has been run there is nothing truthful to show, so the card
+                invites the farmer to run it rather than naming a crop. */}
             <MetricCard
               domain="Field"
               label="Crop Match"
-              value={`${homeSummary.cropMatch}%`}
-              caption={`${homeSummary.recommendedCrop} · ${homeSummary.farmRecommendationStatus}`}
+              value={data.crop ? `${data.crop.confidence}%` : '--'}
+              caption={data.crop ? data.crop.name : 'Run a recommendation'}
               icon="leaf"
               onPress={() => go('/crop-recommendation')}
               style={styles.metricCell}
@@ -82,10 +179,9 @@ export default function HomeScreen() {
             <MetricCard
               domain="Fund"
               label="SHG Savings"
-              value={formatCurrency(homeSummary.totalSavings)}
+              value={formatCurrency(data.summary.totalSavings)}
               caption="Group balance"
               icon="wallet"
-              delta={homeSummary.savingsDelta}
               onPress={() => go('/finance')}
               style={styles.metricCell}
             />
@@ -95,8 +191,8 @@ export default function HomeScreen() {
             <MetricCard
               domain="Fund"
               label="Active Loans"
-              value={formatCurrency(homeSummary.activeLoans)}
-              caption={`Across ${homeSummary.activeLoanCount} members`}
+              value={formatCurrency(data.summary.activeLoans)}
+              caption={`Across ${data.summary.activeLoanCount} members`}
               icon="cash"
               onPress={() => go('/loans')}
               style={styles.metricCell}
@@ -104,7 +200,7 @@ export default function HomeScreen() {
             <MetricCard
               domain="Group"
               label="Members"
-              value={String(homeSummary.memberCount)}
+              value={String(data.summary.memberCount)}
               caption="Active in group"
               icon="people"
               onPress={() => go('/members')}
@@ -113,20 +209,28 @@ export default function HomeScreen() {
           </View>
 
           {/* Ledger integrity ------------------------------------------ */}
-          <View style={styles.ledgerCard}>
-            <View style={styles.ledgerText}>
-              <Text style={styles.ledgerTitle}>{ledgerStatus.title}</Text>
-              <Text style={styles.ledgerMessage} numberOfLines={2}>
-                {ledgerStatus.message}
-              </Text>
-              <Text style={styles.ledgerMeta}>{ledgerStatus.lastCheckedLabel}</Text>
+          {/* Whatever GET /ledger/verify returned. Nothing here can force a
+              VERIFIED badge -- a broken chain reads as broken. */}
+          {!!data.ledger && (
+            <View style={styles.ledgerCard}>
+              <View style={styles.ledgerText}>
+                <Text style={styles.ledgerTitle}>Secure Ledger</Text>
+                <Text style={styles.ledgerMessage} numberOfLines={2}>
+                  {data.ledger.verified
+                    ? 'Every entry matches its recorded hash.'
+                    : `Chain broken at ${data.ledger.tamperedRecordId}.`}
+                </Text>
+                <Text style={styles.ledgerMeta}>
+                  {data.ledger.checkedRecords} of {data.ledger.totalRecords} entries checked
+                </Text>
+              </View>
+              <StatusBadge
+                label={data.ledger.verified ? 'Verified' : 'Tampered'}
+                tone={data.ledger.verified ? 'success' : 'error'}
+                icon="shield-checkmark"
+              />
             </View>
-            <StatusBadge
-              label={ledgerStatus.label}
-              tone={ledgerStatus.tone}
-              icon="shield-checkmark"
-            />
-          </View>
+          )}
 
           {/* Quick actions --------------------------------------------- */}
           <View style={styles.section}>
@@ -155,7 +259,7 @@ export default function HomeScreen() {
               title="AI Insights"
               caption="Generated from your latest farm and ledger data"
             />
-            {homeInsights.map((insight) => (
+            {buildInsights(data).map((insight) => (
               <RecommendationCard
                 key={insight.id}
                 title={insight.title}
@@ -186,7 +290,7 @@ export default function HomeScreen() {
               actionLabel="View all"
               onActionPress={() => go('/finance')}
             />
-            {recentActivities.map((txn) => (
+            {data.recentActivity.map((txn) => (
               <TransactionCard
                 key={txn.id}
                 type={txn.type}
@@ -196,7 +300,9 @@ export default function HomeScreen() {
                 date={txn.date}
               />
             ))}
-          </View>
+              </View>
+            </>
+          )}
         </View>
       </ScrollView>
     </View>
@@ -204,6 +310,25 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  stateBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.xxl,
+  },
+  stateText: {
+    ...Typography.bodySmall,
+  },
+  errorBox: {
+    gap: Spacing.md,
+    backgroundColor: Colors.errorSoft,
+    borderRadius: Radius.md,
+    padding: Spacing.lg,
+  },
+  errorText: {
+    ...Typography.bodySmall,
+    color: Colors.error,
+  },
   screen: {
     flex: 1,
     backgroundColor: Colors.background,

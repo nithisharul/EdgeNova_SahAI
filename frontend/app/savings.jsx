@@ -73,7 +73,10 @@ export default function SavingsScreen() {
 
     setSaveStatus('saving');
     try {
+      // memberId is what the ledger entry is keyed on; the name is only
+      // carried through for the confirmation message.
       const entry = await recordSavings({
+        memberId: selectedMember.id,
         member: selectedMember.name,
         amount: values.amount,
         date: values.date,

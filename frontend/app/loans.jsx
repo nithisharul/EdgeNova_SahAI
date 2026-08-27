@@ -71,10 +71,13 @@ export default function LoansScreen() {
                 />
               </View>
 
+              {/* The ledger records repayments, not a repayment schedule, so
+                  "due this month" cannot be derived from it. What has actually
+                  been repaid can be, and is a real figure. */}
               <MetricCard
-                label="Repayment Due"
-                value={formatCurrency(data.summary.repaymentDue)}
-                caption="Expected this month"
+                label="Repaid So Far"
+                value={formatCurrency(data.summary.totalRepaid)}
+                caption="Across all active loans"
                 icon="trending-up"
               />
 
