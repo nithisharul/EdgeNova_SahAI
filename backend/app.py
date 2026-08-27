@@ -1,18 +1,4 @@
-"""
-sahAI backend -- FastAPI entrypoint.
-
-This file only wires the app together. Actual endpoint logic lives in
-backend/routes/:
-  auth_routes.py        -> POST /auth/register, POST /auth/login
-  crop_routes.py        -> POST /predict-crop
-  fertilizer_routes.py  -> POST /recommend-fertilizer
-  loan_routes.py         -> POST /request-loan
-  ledger_routes.py       -> POST /ledger/add, GET /ledger/verify, GET /ledger/all
-  portfolio_routes.py    -> GET /member/{id}/portfolio, GET /group/summary
-
-Ledger verify/all and group summary are treasurer-only (see backend/auth.py).
-
-Run with: uvicorn backend.app:app --reload --port 5000
+"""Run with: uvicorn backend.app:app --reload --port 5000
 Interactive API docs auto-generated at: http://localhost:5000/docs
 """
 

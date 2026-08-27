@@ -8,6 +8,10 @@ hashing and PyJWT for session tokens. Roles are "admin", "member", and
 NOTE: for a hackathon this is real, working auth -- not decorative --
 and the JWT secret is read from SAHAI_SECRET_KEY. Set that variable in
 every deployed environment.
+
+Treasurer accounts cannot be self-registered: creating one requires
+SAHAI_SETUP_KEY (see backend/routes/auth_routes.py). Without that gate any
+visitor could register as a treasurer and read the whole group's finances.
 """
 
 import hashlib
@@ -22,9 +26,18 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 SECRET_KEY = os.getenv("SAHAI_SECRET_KEY", "dev-only-secret-change-me-32-bytes")
 ALGORITHM = "HS256"
-TOKEN_EXPIRY_SECONDS = 60 * 30
+
+# 30 minutes is the right production default, but it will expire mid-demo.
+# Override with SAHAI_TOKEN_EXPIRY_SECONDS (e.g. 43200 for 12h) when presenting.
+TOKEN_EXPIRY_SECONDS = int(os.getenv("SAHAI_TOKEN_EXPIRY_SECONDS", 60 * 30))
+
+# Shared secret required to create a treasurer account. Empty means treasurer
+# registration is disabled entirely, which is the safe default.
+SETUP_KEY = os.getenv("SAHAI_SETUP_KEY", "")
 ROLES = frozenset(("admin", "treasurer", "member"))
-STAFF_ROLES = frozenset(("admin", "treasurer"))
+# Tuple, not frozenset: require_roles() renders these into an error message and
+# frozenset iteration order is arbitrary, so the message would vary run to run.
+STAFF_ROLES = ("admin", "treasurer")
 
 security_scheme = HTTPBearer()
 
@@ -60,7 +73,21 @@ def create_token(member_id: str, role: str) -> str:
 
 def decode_token(token: str) -> dict:
     try:
-        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        claims = jwt.decode(
+            token, SECRET_KEY, algorithms=[ALGORITHM],
+            options={"require": ["exp", "member_id", "role"]},
+        )
+        # Defence in depth: a token carrying a role we no longer recognise is
+        # rejected rather than silently treated as an unknown (and therefore
+        # permission-less, or worse, matching) role.
+        if claims.get("role") not in ROLES:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token carries an unrecognised role.",
+            )
+        return claims
+    except jwt.MissingRequiredClaimError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Malformed token.")
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired, please log in again.")
     except jwt.InvalidTokenError:
