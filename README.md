@@ -1,3 +1,15 @@
+# Keyclock Authentication
+
+28/08/2026
+Done setting up Keyclock Authentication setup
+
+### Issues
+Sign On can't connect to Backend
+
+
+
+
+
 # Running SahAI locally
 
 One command from the repository root starts both halves:
