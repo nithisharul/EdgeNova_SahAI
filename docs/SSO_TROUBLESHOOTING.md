@@ -13,6 +13,18 @@ SahAI FastAPI API validates the Keycloak access token
 
 The frontend does not receive or store an LDAP password. Keycloak authenticates the user against LDAP and returns an OIDC access token. FastAPI verifies that token and maps the user's Keycloak groups or roles to a SahAI role.
 
+## Incident Timeline
+
+The connection errors occurred in stages. This distinction is useful when diagnosing the app:
+
+1. The backend process was not running, so port `5000` was closed. The frontend correctly could not reach FastAPI.
+2. The backend was started, but an older Uvicorn/dev supervisor continued serving the old process. Restarting only one child process did not replace the listener.
+3. Chrome then reached `/auth/me`, but the old worker returned incomplete CORS headers. Chrome reported this as a network failure even though FastAPI was reachable.
+4. After the clean backend restart, `/auth/me` returned `401 Not authenticated` without a token. That is a healthy response and proves the API is reachable.
+5. Once the network path worked, the real SSO-specific errors appeared: invalid redirect URI, invalid scope, missing PKCE verifier, and missing RSA cryptography support.
+
+When the frontend displays `Cannot reach the SahAI server`, check the port and the browser console first. Do not assume every occurrence means the backend is stopped: a CORS rejection also makes browser `fetch()` reject before the frontend receives an HTTP status.
+
 ## Development Services
 
 | Service | URL |
@@ -159,7 +171,35 @@ python -m pip install "cryptography>=42.0.0"
 
 `requirements.txt` now declares `cryptography>=42.0.0`.
 
-### 11. `Cannot reach the SahAI server` caused by localhost networking
+### 11. Backend unavailable: `Cannot reach the SahAI server`
+
+Browser message:
+
+```text
+Cannot reach the SahAI server. Check that the backend is running.
+```
+
+**First cause:** The backend was not running, so nothing was listening on port `5000`. This can happen after closing the terminal, after a failed startup, or when the `dev.py` supervisor exits.
+
+Check both services:
+
+```powershell
+curl.exe -I http://127.0.0.1:5000/docs
+curl.exe -I http://localhost:8081
+```
+
+If the API check fails, start the backend from the repository root:
+
+```powershell
+$env:SAHAI_AUTH_MODE="oidc"
+$env:KEYCLOAK_ISSUER="http://localhost:8080/realms/sahai"
+$env:KEYCLOAK_AUDIENCE="sahai-api"
+python -m uvicorn backend.app:app --host 0.0.0.0 --port 5000
+```
+
+Keep that terminal open. If an old Uvicorn process still owns port `5000`, stop the complete process tree before starting a new one.
+
+**Second cause:** Once the backend was running, Chrome sometimes still showed this message because of localhost networking or CORS. The frontend's `fetch()` rejects both transport failures and browser-blocked CORS responses, so the message is deliberately supplemented with the failing URL during development.
 
 **Cause:** Chrome and Expo sometimes resolved `localhost` differently from the backend binding, especially when IPv6 (`::1`) was selected.
 
@@ -174,6 +214,14 @@ The backend should be started with:
 ```powershell
 python -m uvicorn backend.app:app --host 0.0.0.0 --port 5000
 ```
+
+The browser frontend uses the explicit IPv4 URL:
+
+```text
+EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:5000
+```
+
+This avoids Chrome resolving `localhost` to IPv6 while Uvicorn is listening on IPv4.
 
 ### 12. CORS error on `/auth/me`
 
@@ -193,6 +241,14 @@ allow_credentials=False
 ```
 
 Stop stale Uvicorn/dev supervisor processes before restarting the backend. A normal unauthenticated request to `/auth/me` returning `401 Not authenticated` proves the API is reachable; it is not a network failure.
+
+The follow-on error after a successful connection may be:
+
+```text
+{"detail":"Invalid Keycloak token."}
+```
+
+That means the request reached FastAPI and the token was rejected. Check Keycloak issuer, audience, RS256 signing keys, PKCE exchange, and role claims. It is different from a closed port or a browser CORS failure.
 
 ### 13. Authentication returned to the previous user after logout
 
