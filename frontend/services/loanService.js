@@ -1,76 +1,108 @@
 import Config from '../constants/Config';
+import { apiPost } from './apiClient';
+import { rememberLoan } from './sessionState';
 
 /**
- * Loan risk service.
+ * Loan risk screening.
  *
- * There is NO scoring logic here and none belongs here: the frontend must not
- * classify anything. These are canned payloads shaped exactly like the
- * response Config.ENDPOINTS.loanRisk will return.
+ * NO SCORING LOGIC LIVES HERE and none belongs here. The frontend must not
+ * classify anything -- it sends four numbers and renders what came back.
  *
- * The inputs are never inspected and the answer never changes: the same
- * request has to produce the same result every time it is shown. The Medium
- * and High payloads stay in the list so those layouts can still be checked
- * while working on the result screen.
+ * savings_consistency IS NOT SENT
+ * -------------------------------
+ * The backend derives it from the member's own hash-chained deposit history.
+ * That is the product's core claim: the score is hers, computed from a ledger
+ * she cannot edit, not a number she typed. If the frontend ever sent it, a
+ * member could inflate her own score and the whole feature would be theatre.
+ *
+ * The four fields below are the ONLY ones the model uses. The old form's
+ * monthly income / existing loan / repayment score inputs were never read by
+ * anything and have been removed rather than sent and ignored.
  */
 
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/** Canned responses, Low first. */
-export const MOCK_ASSESSMENTS = [
-  {
-    riskLevel: 'Low',
-    riskScore: 18,
-    repaymentProbability: 82,
-    recommendation: 'Suitable for approval',
-    reasons: [
-      'Consistent monthly savings',
-      'Strong previous repayment behaviour',
-      'Acceptable loan-to-income ratio',
-    ],
-  },
-  {
-    riskLevel: 'Medium',
-    riskScore: 46,
-    repaymentProbability: 61,
-    recommendation: 'Approve with a shorter repayment period',
-    reasons: [
-      'Savings history is still building',
-      'One delayed repayment in the last year',
-      'Loan-to-income ratio near the group limit',
-    ],
-  },
-  {
-    riskLevel: 'High',
-    riskScore: 74,
-    repaymentProbability: 38,
-    recommendation: 'Review before approving',
-    reasons: [
-      'Existing loan still outstanding',
-      'Repayment score below the group threshold',
-      'Requested amount is high relative to income',
-    ],
-  },
+/** Sectors the model saw in training. Anything else carries no signal. */
+export const SECTORS = [
+  'Agriculture',
+  'Food',
+  'Retail',
+  'Services',
+  'Clothing',
+  'Housing',
+  'Education',
+  'Health',
+  'Arts',
+  'Transportation',
+  'Construction',
+  'Manufacturing',
+  'Personal Use',
+  'Entertainment',
+  'Wholesale',
 ];
 
-/** The payload every call returns until the backend is wired up. */
-export const DEFAULT_ASSESSMENT = MOCK_ASSESSMENTS[0];
+/** Backend value -> the words a farmer actually uses. */
+export const REPAYMENT_INTERVALS = [
+  { value: 'monthly', label: 'Every month' },
+  { value: 'weekly', label: 'Every week' },
+  { value: 'bullet', label: 'All at the end' },
+  { value: 'irregular', label: 'When I can' },
+];
 
-/**
- * @param {object} input - { memberId, memberName, requestedAmount,
- *                           monthlyIncome, existingLoan, repaymentScore,
- *                           durationMonths }
- * @returns {Promise<object>} the assessment payload.
- */
-export async function assessLoanRisk(input) {
-  await wait(Config.MOCK_DELAY);
-
-  if (!Config.USE_MOCK_DATA) {
-    // Reached once the backend is live; wired up in a later phase.
-    throw new Error('Live loan risk assessment is not connected yet.');
-  }
-
-  // `input` is passed straight back, never examined.
-  return { ...DEFAULT_ASSESSMENT, input };
+function adaptLoan(raw) {
+  const detail = raw.savings_consistency_detail || {};
+  return {
+    memberId: raw.member_id,
+    // Backend sends 0-1. Screens display a percentage; the conversion happens
+    // here so no screen can render "0.99%" for a 99% score.
+    riskScore: raw.risk_score,
+    riskPercent: Math.round((raw.risk_score ?? 0) * 100),
+    riskLabel: raw.risk_label,
+    flaggedHighRisk: !!raw.flagged_high_risk,
+    decisionThreshold: raw.decision_threshold,
+    savingsConsistency: raw.savings_consistency,
+    savingsConsistencyPercent: Math.round((raw.savings_consistency ?? 0) * 100),
+    savingsDetail: {
+      depositCount: detail.deposit_count ?? 0,
+      basis: detail.basis || null,
+      intervalRegularity: detail.interval_regularity ?? null,
+      amountRegularity: detail.amount_regularity ?? null,
+      isEstimated: !!detail.is_estimated,
+    },
+    request: {
+      amount: raw.request?.amount_inr,
+      termInMonths: raw.request?.term_in_months,
+      sector: raw.request?.sector,
+      repaymentInterval: raw.request?.repayment_interval,
+    },
+    model: {
+      type: raw.model?.type,
+      valAuc: raw.model?.val_auc,
+      labelIsSynthetic: !!raw.model?.label_is_synthetic,
+    },
+    // Rendered verbatim. It is the backend's own statement of what the number
+    // does and does not mean, and rewriting it would overstate the model.
+    note: raw.note,
+  };
 }
 
-export default { assessLoanRisk };
+/**
+ * POST /request-loan.
+ *
+ * @param {object} input - amount, termInMonths, sector, repaymentInterval
+ * @param {string} [input.memberId] - treasurer only; a member always scores
+ *                                    herself and the backend enforces that.
+ */
+export async function requestLoan(input) {
+  const body = {
+    amount: Number(input.amount),
+    term_in_months: Number(input.termInMonths),
+    sector: input.sector,
+    repayment_interval: input.repaymentInterval,
+  };
+  if (input.memberId) body.member_id = input.memberId;
+
+  const result = adaptLoan(await apiPost(Config.ENDPOINTS.requestLoan, body));
+  rememberLoan(result);
+  return result;
+}
+
+export default { requestLoan, SECTORS, REPAYMENT_INTERVALS };

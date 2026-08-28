@@ -2,6 +2,8 @@ import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import SahaiHeader from '../components/SahaiHeader';
+import Backdrop from '../components/Backdrop';
+import { useBreakpoint } from '../utils/layout';
 import SectionHeader from '../components/SectionHeader';
 import StatusBadge from '../components/StatusBadge';
 import SecondaryButton from '../components/SecondaryButton';
@@ -40,13 +42,31 @@ const BLOCK_TONES = {
 
 export default function MyLandScreen() {
   const total = farmProfile.totalAcres;
+  const { maxWidth } = useBreakpoint();
 
   return (
     <View style={styles.screen}>
-      <SahaiHeader title="My Land" subtitle="Agriculture" showBack />
+      <SahaiHeader title="My Land" subtitle="Field" showBack />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.inner}>
+        <View style={[styles.inner, { maxWidth: maxWidth('content') }]}>
+          <View style={styles.landHero}>
+            <Backdrop variant="field" height={170} />
+            <Text style={styles.landEyebrow}>Field profile</Text>
+            <Text style={styles.landTitle}>{farmProfile.farmName}</Text>
+            <Text style={styles.landMeta}>
+              {farmProfile.totalAcres} acres · {farmProfile.soilType} soil · {farmProfile.irrigation}
+            </Text>
+          </View>
+
+          <View style={styles.prototypeStrip}>
+            <Ionicons name="flask-outline" size={16} color={Colors.info} />
+            <Text style={styles.prototypeText}>
+              Prototype field profile — kept on this device, not on the SahAI
+              server.
+            </Text>
+          </View>
+
           <Text style={styles.subtitle}>
             Your farm profile, so recommendations arrive already tuned to your plots.
           </Text>
@@ -105,7 +125,7 @@ export default function MyLandScreen() {
 
           {/* Sections --------------------------------------------------- */}
           <View style={styles.section}>
-            <SectionHeader title="Field Sections" caption="Status matches Crop Health" />
+            <SectionHeader title="Field Sections" caption="Prototype plot records" />
             {fieldSections.map((section) => (
               <View key={section.id} style={styles.card}>
                 <View style={styles.sectionHeaderRow}>
@@ -138,13 +158,14 @@ export default function MyLandScreen() {
           </View>
 
           <SecondaryButton
-            label="View Crop Health"
-            icon="pulse"
-            onPress={() => router.push('/crop-health')}
+            label="Get Crop Advice"
+            icon="leaf"
+            onPress={() => router.push('/crop-advisor')}
           />
 
           <Text style={styles.demoNote}>
-            Demo farm record. Editing land details is not connected yet.
+            This field profile is stored on this device only. Live plot readings
+            arrive when sensor hardware is connected.
           </Text>
         </View>
       </ScrollView>
@@ -162,6 +183,19 @@ const styles = StyleSheet.create({
     gap: Spacing.lg,
   },
   subtitle: { ...Typography.bodySmall, lineHeight: 21 },
+  landHero: { paddingVertical: Spacing.lg, gap: Spacing.xs, overflow: 'hidden' },
+  landEyebrow: { ...Typography.sectionLabel, color: Colors.accent },
+  landTitle: { ...Typography.heading },
+  landMeta: { ...Typography.bodySmall },
+  prototypeStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    backgroundColor: Colors.infoSoft,
+    padding: Spacing.md,
+    borderRadius: Radius.md,
+  },
+  prototypeText: { ...Typography.caption, color: Colors.info, flex: 1, lineHeight: 16 },
   card: {
     ...CardBase,
     ...Shadow.card,

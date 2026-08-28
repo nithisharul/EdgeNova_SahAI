@@ -23,14 +23,21 @@ import {
   welcomeMessage,
   suggestedQuestions,
   errorResponse,
-} from '../../data/mockAssistantData';
+} from '../../data/assistantPresets';
+import { useAuth } from '../../contexts/AuthContext';
 
 /**
  * SahAI Assistant.
  *
- * A preset conversational surface over the existing modules -- it quotes the
- * same mock data the dashboards do and routes into the real screens. There is
- * no language model behind it; see services/assistantService.js.
+ * A conversational surface over the app's own services. There is no language
+ * model behind it and no external API is called -- see
+ * services/assistantService.js, which matches an intent and then performs the
+ * SAME live call the corresponding screen would.
+ *
+ * The suggestion chips are filtered by role, so a member is never invited to
+ * ask a question whose answer she is not permitted to see. The service checks
+ * again before answering; this only avoids dangling the question in front of
+ * her.
  *
  * Conversation state is session-only and intentionally not persisted.
  */
@@ -39,6 +46,7 @@ let messageCounter = 0;
 const nextId = (prefix) => `${prefix}-${(messageCounter += 1)}`;
 
 export default function AssistantScreen() {
+  const { role } = useAuth();
   const [messages, setMessages] = useState([welcomeMessage]);
   const [input, setInput] = useState('');
   const [thinking, setThinking] = useState(false);
@@ -88,6 +96,11 @@ export default function AssistantScreen() {
 
   const canSend = input.trim().length > 0 && !thinking;
 
+  // A chip with no `roles` is for everyone, signed out included.
+  const visibleQuestions = suggestedQuestions.filter(
+    (question) => !question.roles || question.roles.includes(role)
+  );
+
   // Chips stay visible while the thread is short, then get out of the way --
   // except after a fallback, which tells the user to pick one of them.
   const lastMessage = messages[messages.length - 1];
@@ -95,7 +108,7 @@ export default function AssistantScreen() {
 
   return (
     <View style={styles.screen}>
-      <SahaiHeader title="SahAI Assistant" subtitle="Ask about your farm or SHG" />
+      <SahaiHeader title="SahAI Advisor" subtitle="Field and finance guidance" />
 
       <KeyboardAvoidingView
         style={styles.flex}
@@ -106,17 +119,17 @@ export default function AssistantScreen() {
         <View style={styles.toolbar}>
           <View style={styles.toolbarInner}>
             <Text style={styles.toolbarHint} numberOfLines={1}>
-              Preset answers from your SahAI data
+              Answers use your live SahAI data
             </Text>
             <Pressable
               onPress={resetChat}
               hitSlop={8}
               accessibilityRole="button"
-              accessibilityLabel="New chat"
+              accessibilityLabel="New conversation"
               style={({ pressed }) => [styles.newChat, pressed && styles.pressed]}
             >
               <Ionicons name="add" size={15} color={Colors.secondary} />
-              <Text style={styles.newChatLabel}>New Chat</Text>
+              <Text style={styles.newChatLabel}>New</Text>
             </Pressable>
           </View>
         </View>
@@ -147,7 +160,7 @@ export default function AssistantScreen() {
             {thinking && (
               <View style={styles.thinkingRow}>
                 <ActivityIndicator size="small" color={Colors.secondary} />
-                <Text style={styles.thinkingText}>SahAI is thinking...</Text>
+                <Text style={styles.thinkingText}>Checking your records...</Text>
               </View>
             )}
           </View>
@@ -158,14 +171,14 @@ export default function AssistantScreen() {
           <View style={styles.footerInner}>
             {showSuggestions && (
               <>
-                <Text style={styles.suggestLabel}>Suggested Questions</Text>
+                <Text style={styles.suggestLabel}>Try asking</Text>
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.suggestRow}
                   keyboardShouldPersistTaps="handled"
                 >
-                  {suggestedQuestions.map((question) => (
+                  {visibleQuestions.map((question) => (
                     <SuggestedQuestion
                       key={question.id}
                       label={question.label}
@@ -183,7 +196,7 @@ export default function AssistantScreen() {
                 style={styles.input}
                 value={input}
                 onChangeText={setInput}
-                placeholder="Ask SahAI..."
+                placeholder="Ask about your field or your money"
                 placeholderTextColor={Colors.textMuted}
                 editable={!thinking}
                 multiline

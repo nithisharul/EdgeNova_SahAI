@@ -1,139 +1,124 @@
 import Config from '../constants/Config';
-import {
-  ledgerRecords,
-  ledgerSummary,
-  verifiedResult,
-  tamperedResult,
-} from '../data/mockLedgerData';
+import { apiGet, apiPost } from './apiClient';
 
 /**
- * Secure SHG ledger service.
+ * The tamper-evident ledger.
  *
- * This module is the seam between the app and the backend. No hashing, no
- * chain walking and no verification logic lives here or anywhere else in the
- * frontend -- those belong to ledger.py behind
- * Config.API_BASE_URL + Config.ENDPOINTS.ledgerVerify. Today every function
- * resolves canned data shaped like the eventual API payload, so screens will
- * not change when the real endpoints are wired up.
- */
-
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/**
- * Demo modes for the hackathon walkthrough.
+ * VERIFICATION IS NOT A FRONTEND DECISION
+ * ---------------------------------------
+ * verifyLedger() returns exactly what GET /ledger/verify said. No constant, no
+ * optimistic default, no "assume valid while loading". The whole security
+ * claim is that a SHA-256 chain was walked server-side; a frontend that
+ * decided "verified" on its own would be lying about the one thing this
+ * product exists to prove.
  *
- * 'verified' is the default and the only state a real user sees. The others
- * exist so the tamper, empty and failure screens can be shown on demand:
- * open /ledger?demo=tampered (or empty / error) during a demo, or change
- * demoMode below. Nothing in the UI advertises them.
+ * ENTRY TYPES
+ * -----------
+ * The backend has exactly three, and "expense" is not among them. Rather than
+ * invent a ledger row the backend cannot store, that old category is gone.
  */
-const MODES = ['verified', 'tampered', 'empty', 'error'];
 
-let demoMode = 'verified';
+/** Backend entry_type -> the words shown to a member. */
+export const ENTRY_TYPE_LABELS = {
+  savings_deposit: 'Deposit',
+  loan_disbursed: 'Loan received',
+  loan_repayment: 'Repayment',
+};
 
-export function setLedgerDemoMode(mode) {
-  demoMode = MODES.includes(mode) ? mode : 'verified';
-}
+/** Treasurer wording, where "loan received" is really a disbursement. */
+export const ENTRY_TYPE_TREASURER_LABELS = {
+  savings_deposit: 'Savings deposit',
+  loan_disbursed: 'Loan disbursement',
+  loan_repayment: 'Loan repayment',
+};
 
-export function getLedgerDemoMode() {
-  return demoMode;
-}
-
-/** Records for the current demo mode, newest first. */
-function recordsForMode() {
-  if (demoMode === 'empty') return [];
-  if (demoMode === 'tampered') {
-    return ledgerRecords.map((record) =>
-      record.id === tamperedResult.tamperedRecordId ? { ...record, verified: false } : record
-    );
-  }
-  return ledgerRecords;
-}
-
-function summaryForMode() {
-  if (demoMode === 'empty') {
-    return { totalRecords: 0, savingsEntries: 0, loanEntries: 0, repaymentEntries: 0 };
-  }
-  return ledgerSummary;
-}
+/** How each type reads on a statement -- drives colour only. */
+export const ENTRY_TYPE_TONES = {
+  savings_deposit: 'success',
+  loan_disbursed: 'accent',
+  loan_repayment: 'warning',
+};
 
 /**
- * Loads the ledger page.
- * @returns {Promise<{records: object[], summary: object, integrity: object}>}
+ * Entry types a member may write for herself: deliberately just the one.
+ *
+ * A member who could record her own deposits could manufacture the savings
+ * history the loan model reads, so the backend rejects it. The UI must not
+ * offer a control that is guaranteed to 403.
  */
-export async function getLedgerRecords() {
-  await wait(Config.MOCK_DELAY);
+export const MEMBER_ENTRY_TYPES = ['loan_repayment'];
+export const TREASURER_ENTRY_TYPES = ['savings_deposit', 'loan_disbursed', 'loan_repayment'];
 
-  if (!Config.USE_MOCK_DATA) {
-    // Reached once the backend is live; wired up in a later phase.
-    throw new Error('Unable to load ledger records.');
-  }
+/** Backend timestamps are epoch SECONDS; JavaScript wants milliseconds. */
+export function entryDate(entry) {
+  return new Date((entry.timestamp || 0) * 1000);
+}
 
-  if (demoMode === 'error') {
-    throw new Error('Unable to load ledger records.');
-  }
-
+export function adaptEntry(raw) {
   return {
-    records: recordsForMode(),
-    summary: summaryForMode(),
-    integrity: integrityForMode(),
+    id: raw.id,
+    memberId: raw.member_id,
+    entryType: raw.entry_type,
+    label: ENTRY_TYPE_LABELS[raw.entry_type] || raw.entry_type,
+    // Always positive on the wire. Direction comes from entryType, never from
+    // the sign -- reading a positive amount as "money in" would misreport
+    // every disbursement.
+    amount: raw.amount,
+    timestamp: raw.timestamp,
+    date: entryDate(raw),
+    prevHash: raw.prev_hash,
+    entryHash: raw.entry_hash,
   };
 }
 
-/** Integrity result as the backend would report it for the current mode. */
-function integrityForMode() {
-  if (demoMode === 'tampered') return tamperedResult;
-  if (demoMode === 'empty') {
-    return { ...verifiedResult, totalRecords: 0, checkedRecords: 0 };
+/** POST /ledger/add. Role rules are enforced by the backend; see above. */
+export async function addLedgerEntry({ memberId, entryType, amount }) {
+  const value = Number(amount);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error('Amount must be greater than zero.');
   }
-  return verifiedResult;
+
+  const raw = await apiPost(Config.ENDPOINTS.ledgerAdd, {
+    member_id: String(memberId).trim(),
+    entry_type: entryType,
+    amount: value,
+  });
+
+  return {
+    id: raw.id,
+    memberId: raw.member_id,
+    entryType: raw.entry_type,
+    amount: raw.amount,
+    timestamp: raw.timestamp,
+    entryHash: raw.entry_hash,
+  };
 }
 
-/**
- * Runs an integrity check across the chain.
- * @returns {Promise<{verified: boolean, totalRecords: number,
- *                    checkedRecords: number, tamperedRecordId: ?string,
- *                    verifiedAt: string}>}
- */
+/** GET /ledger/verify -- treasurer only. The single source of truth. */
 export async function verifyLedger() {
-  await wait(Config.MOCK_DELAY);
-
-  if (!Config.USE_MOCK_DATA) {
-    throw new Error('Ledger verification is not connected yet.');
-  }
-
-  if (demoMode === 'error') {
-    throw new Error('Ledger verification could not be completed.');
-  }
-
-  // The verdict is returned as-is: the frontend never decides it.
-  return { ...integrityForMode(), verifiedAt: new Date().toISOString() };
+  const raw = await apiGet(Config.ENDPOINTS.ledgerVerify);
+  return {
+    valid: raw.valid,
+    brokenEntryId: raw.broken_entry_id ?? null,
+    checkedAt: new Date(),
+  };
 }
 
-/**
- * Single record for the detail screen.
- * @param {string} id - e.g. "TXN-024".
- * @returns {Promise<object>} the record, including its stored hashes.
- */
-export async function getLedgerRecordById(id) {
-  await wait(Math.min(Config.MOCK_DELAY, 400));
-
-  if (demoMode === 'error') {
-    throw new Error('Unable to load this ledger record.');
-  }
-
-  const record = recordsForMode().find((entry) => entry.id === id);
-  if (!record) {
-    throw new Error('This ledger record could not be found.');
-  }
-
-  return record;
+/** GET /ledger/all -- treasurer only. Newest first for display. */
+export async function getAllEntries() {
+  const raw = await apiGet(Config.ENDPOINTS.ledgerAll);
+  return (raw || []).map(adaptEntry).sort((a, b) => b.id - a.id);
 }
 
 export default {
-  getLedgerRecords,
+  addLedgerEntry,
   verifyLedger,
-  getLedgerRecordById,
-  setLedgerDemoMode,
-  getLedgerDemoMode,
+  getAllEntries,
+  adaptEntry,
+  entryDate,
+  ENTRY_TYPE_LABELS,
+  ENTRY_TYPE_TREASURER_LABELS,
+  ENTRY_TYPE_TONES,
+  MEMBER_ENTRY_TYPES,
+  TREASURER_ENTRY_TYPES,
 };

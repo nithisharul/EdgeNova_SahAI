@@ -1,8 +1,14 @@
 venv/
 __pycache__/
 *.pyc
-backend/database.db
+# Every SQLite file under backend/, not just database.db: a hand-made backup
+# (database.backup-*.db) holds the same PBKDF2 password hashes and must not be
+# committed either. scripts/seed_demo.py rebuilds the demo data from code.
+backend/*.db
 data/raw/*.csv
 models/*.pt
 models/*.pkl
 models/*.json
+# Expo build output. frontend/.gitignore covers dist/; these are the
+# per-platform export directories.
+frontend/dist-*/

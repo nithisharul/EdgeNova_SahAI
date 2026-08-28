@@ -38,7 +38,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="farm"
         options={{
-          title: 'Farm',
+          title: 'Field',
           tabBarIcon: ({ color, focused }) => (
             <TabIcon name={focused ? 'leaf' : 'leaf-outline'} color={color} focused={focused} />
           ),
@@ -47,7 +47,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="finance"
         options={{
-          title: 'Finance',
+          title: 'Fund',
           tabBarIcon: ({ color, focused }) => (
             <TabIcon name={focused ? 'wallet' : 'wallet-outline'} color={color} focused={focused} />
           ),
@@ -56,9 +56,17 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="assistant"
         options={{
-          title: 'AI',
+          // "AI" as a destination name says what the technology is rather
+          // than what the tab does, and the sparkle icon is the visual cliche
+          // this product should avoid. "Ask" names the action -- and stays
+          // distinct from the Crop Advisor screen, which "Advisor" did not.
+          title: 'Ask',
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon name={focused ? 'sparkles' : 'sparkles-outline'} color={color} focused={focused} />
+            <TabIcon
+              name={focused ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline'}
+              color={color}
+              focused={focused}
+            />
           ),
         }}
       />

@@ -22,6 +22,7 @@ export default function InputField({
   autoCapitalize = 'sentences',
   editable = true,
   multiline = false,
+  secureTextEntry = false,
   style,
 }) {
   const [focused, setFocused] = useState(false);
@@ -54,6 +55,7 @@ export default function InputField({
           autoCapitalize={autoCapitalize}
           editable={editable}
           multiline={multiline}
+          secureTextEntry={secureTextEntry}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
         />
@@ -84,7 +86,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.card,
     borderWidth: 1,
     borderColor: Colors.border,
-    borderRadius: Radius.md,
+    borderRadius: Radius.input,
     paddingHorizontal: Spacing.md + 2,
   },
   inputRowFocused: {

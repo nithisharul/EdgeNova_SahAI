@@ -11,8 +11,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from backend.auth import hash_password, verify_password
-
-DB_PATH = "backend/database.db"
+from backend.db_path import DB_PATH
 
 
 @dataclass

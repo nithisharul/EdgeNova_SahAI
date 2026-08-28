@@ -1,133 +1,188 @@
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { Animated, View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import SahaiHeader from '../../components/SahaiHeader';
-import InfoCard from '../../components/InfoCard';
-import SectionHeader from '../../components/SectionHeader';
-import StatusBadge from '../../components/StatusBadge';
+import Backdrop from '../../components/Backdrop';
 import Colors from '../../constants/Colors';
-import { Spacing, Typography } from '../../constants/Theme';
+import { Spacing, Radius, Typography } from '../../constants/Theme';
+import { useBreakpoint } from '../../utils/layout';
+import { useReveal } from '../../utils/motion';
+import { getLastAdvisory } from '../../services/sessionState';
 
 /**
- * Farm hub: the entry point for every agriculture feature.
+ * Farm -- the Field half of "Field to Fund".
  *
- * `ready` splits the list into what a farmer can use now and what is only
- * signposted. Everything is live at the moment, so the second section is
- * skipped rather than rendered as an empty heading.
+ * Everything here works signed out, which is the point: a farmer should get
+ * something useful from SahAI before being asked to create an account.
+ *
+ * The recap strip only appears once a REAL advisory has run this session.
+ * There is no placeholder crop and no sample confidence: empty is shown empty.
  */
-const FEATURES = [
+
+const ACTIONS = [
   {
-    id: 'crop',
-    title: 'Crop Recommendation',
-    description: 'Find the crop best suited to your soil and climate.',
+    id: 'crop-advisor',
+    label: 'Crop advisor',
+    caption: 'Which crop suits your field, and the fertilizer for it',
     icon: 'leaf',
-    route: '/crop-recommendation',
-    ready: true,
+    route: '/crop-advisor',
   },
   {
     id: 'fertilizer',
-    title: 'Fertilizer Advice',
-    description: 'Get fertilizer guidance based on crop and soil nutrients.',
+    label: 'Fertilizer advice',
+    caption: 'Already know your crop? Get the grade',
     icon: 'flask',
     route: '/fertilizer-advice',
-    ready: true,
-  },
-  {
-    id: 'crop-health',
-    title: 'Crop Health',
-    description: 'See how each plot is doing and what needs attention.',
-    icon: 'pulse',
-    route: '/crop-health',
-    ready: true,
   },
   {
     id: 'my-land',
-    title: 'My Land',
-    description: 'Your farm profile, plot sizes and field sections.',
+    label: 'My land',
+    caption: 'Your field profile and plot layout',
     icon: 'map',
     route: '/my-land',
-    ready: true,
   },
 ];
 
 export default function FarmScreen() {
-  const go = (route) => router.push(route);
-
-  const available = FEATURES.filter((feature) => feature.ready);
-  const upcoming = FEATURES.filter((feature) => !feature.ready);
+  const advisory = getLastAdvisory();
+  const { maxWidth } = useBreakpoint();
+  const reveal = useReveal(true);
 
   return (
     <View style={styles.screen}>
       <SahaiHeader />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.inner}>
+        <Animated.View style={[styles.inner, { maxWidth: maxWidth('content') }, reveal]}>
           <View style={styles.intro}>
-            <Text style={styles.title}>Farm</Text>
+            <Backdrop variant="field" height={190} />
+            <Text style={styles.eyebrow}>Field</Text>
+            <Text style={styles.title}>Your field</Text>
             <Text style={styles.subtitle}>
-              Soil and climate tools that turn field data into a decision.
+              Crop and fertilizer advice from your soil and local weather. No
+              account needed.
             </Text>
           </View>
 
-          <View style={styles.section}>
-            <SectionHeader title="Available Now" caption="Field tools and farm records" />
-            {available.map((feature) => (
-              <InfoCard
-                key={feature.id}
-                title={feature.title}
-                description={feature.description}
-                icon={feature.icon}
-                onPress={() => go(feature.route)}
-              />
-            ))}
-          </View>
+          {/* The last real advisory, if one was run. */}
+          {!!advisory?.crop?.name && (
+            <Pressable
+              onPress={() => router.push('/crop-advisor')}
+              accessibilityRole="button"
+              style={({ pressed }) => [styles.recap, pressed && styles.pressed]}
+            >
+              <View style={styles.recapHead}>
+                <Text style={styles.recapLabel}>Your latest advice</Text>
+                <Text style={styles.recapMatch}>
+                  {Math.round((advisory.crop.confidence || 0) * 100)}%
+                </Text>
+              </View>
+              <Text style={styles.recapCrop}>{String(advisory.crop.name).toUpperCase()}</Text>
+              {!!advisory.why?.summary && (
+                <Text style={styles.recapWhy} numberOfLines={2}>
+                  {advisory.why.summary}
+                </Text>
+              )}
+              {advisory.needsSoilTest && (
+                <Text style={styles.recapNote}>Add a soil test for fertilizer advice.</Text>
+              )}
+            </Pressable>
+          )}
 
-          {upcoming.length > 0 && (
-            <View style={styles.section}>
-              <SectionHeader title="Coming Soon" caption="Planned for a later release" />
-              {upcoming.map((feature) => (
-                <InfoCard
-                  key={feature.id}
-                  title={feature.title}
-                  description={feature.description}
-                  icon={feature.icon}
-                  onPress={() => go(feature.route)}
-                  rightElement={<StatusBadge label="Soon" tone="neutral" size="sm" />}
-                />
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Agriculture</Text>
+            <View style={styles.list}>
+              {ACTIONS.map((action, index) => (
+                <Pressable
+                  key={action.id}
+                  onPress={() => router.push(action.route)}
+                  accessibilityRole="button"
+                  accessibilityLabel={action.label}
+                  style={({ pressed }) => [
+                    styles.row,
+                    index === ACTIONS.length - 1 && styles.rowLast,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <View style={styles.rowIcon}>
+                    <Ionicons name={action.icon} size={18} color={Colors.secondary} />
+                  </View>
+                  <View style={styles.rowText}>
+                    <Text style={styles.rowLabel}>{action.label}</Text>
+                    <Text style={styles.rowCaption}>{action.caption}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={Colors.textMuted} />
+                </Pressable>
               ))}
             </View>
-          )}
-        </View>
+          </View>
+
+          <Text style={styles.footnote}>
+            Soil values come from a soil test, your agriculture centre, or a field
+            sensor. SahAI never guesses them.
+          </Text>
+        </Animated.View>
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  content: {
-    padding: Spacing.lg,
-    paddingBottom: Spacing.xxxl,
-  },
-  inner: {
-    width: '100%',
-    maxWidth: 720,
-    alignSelf: 'center',
-    gap: Spacing.lg,
-  },
-  intro: {
+  screen: { flex: 1, backgroundColor: Colors.background },
+  content: { padding: Spacing.lg, paddingBottom: Spacing.section },
+  inner: { width: '100%', alignSelf: 'center', gap: Spacing.xl },
+
+  intro: { paddingVertical: Spacing.lg, gap: Spacing.xs, overflow: 'hidden' },
+  eyebrow: { ...Typography.sectionLabel, color: Colors.accent },
+  title: { ...Typography.heading },
+  subtitle: { ...Typography.bodySmall, lineHeight: 21, maxWidth: 400 },
+
+  recap: {
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: Colors.border,
+    paddingVertical: Spacing.md,
     gap: Spacing.xs,
   },
-  title: {
-    ...Typography.heading,
-    color: Colors.primary,
+  recapHead: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
   },
-  subtitle: {
-    ...Typography.bodySmall,
+  recapLabel: { ...Typography.sectionLabel },
+  recapMatch: {
+    ...Typography.subtitle,
+    color: Colors.accent,
+    fontVariant: ['tabular-nums'],
   },
-  section: {
+  recapCrop: { ...Typography.title, color: Colors.secondary },
+  recapWhy: { ...Typography.bodySmall, lineHeight: 20 },
+  recapNote: { ...Typography.caption, color: Colors.info },
+
+  section: { gap: Spacing.sm },
+  sectionLabel: { ...Typography.sectionLabel },
+  list: { borderTopWidth: 1, borderTopColor: Colors.border },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: Spacing.md,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
   },
+  rowLast: { borderBottomWidth: 0 },
+  rowIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowText: { flex: 1, gap: 1 },
+  rowLabel: { ...Typography.body, fontWeight: '600' },
+  rowCaption: { ...Typography.caption },
+  pressed: { opacity: 0.6 },
+
+  footnote: { ...Typography.caption, lineHeight: 17 },
 });

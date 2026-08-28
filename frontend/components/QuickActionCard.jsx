@@ -73,7 +73,7 @@ const styles = StyleSheet.create({
   iconChip: {
     width: 38,
     height: 38,
-    borderRadius: Radius.md,
+    borderRadius: Radius.card,
     alignItems: 'center',
     justifyContent: 'center',
   },

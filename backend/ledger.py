@@ -13,9 +13,8 @@ import time
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+from backend.db_path import DB_PATH
 from backend.models.transaction import LedgerEntry, compute_hash, GENESIS_HASH
-
-DB_PATH = "backend/database.db"
 
 
 def get_connection():

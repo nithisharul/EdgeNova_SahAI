@@ -1,453 +1,408 @@
-import { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { Animated, View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import SahaiHeader from '../components/SahaiHeader';
-import SectionHeader from '../components/SectionHeader';
-import MetricCard from '../components/MetricCard';
-import StatusBadge from '../components/StatusBadge';
+import Backdrop from '../components/Backdrop';
+import HashDisplay from '../components/HashDisplay';
 import PrimaryButton from '../components/PrimaryButton';
-import SecondaryButton from '../components/SecondaryButton';
-import LedgerRecordCard from '../components/LedgerRecordCard';
+import StatusBadge from '../components/StatusBadge';
+import ErrorNotice from '../components/ErrorNotice';
+import LoadingState from '../components/LoadingState';
+import EmptyState from '../components/EmptyState';
 import Colors from '../constants/Colors';
-import { Spacing, Radius, Typography, CardBase, Shadow, FontSize } from '../constants/Theme';
-import { formatRelativeDateTime } from '../utils/datetime';
-import { getLedgerRecords, verifyLedger, setLedgerDemoMode } from '../services/ledgerService';
+import { Spacing, Radius, Typography, FontSize, Motion } from '../constants/Theme';
+import { formatCurrency } from '../utils/currency';
+import { formatDate, formatTime } from '../utils/datetime';
+import { useBreakpoint } from '../utils/layout';
+import { useReveal } from '../utils/motion';
+import { useAuth } from '../contexts/AuthContext';
+import { getAllEntries, verifyLedger, ENTRY_TYPE_TREASURER_LABELS } from '../services/ledgerService';
 
 /**
- * Secure SHG ledger.
+ * Secure Ledger -- the security demo, and the clearest argument this product
+ * makes.
  *
- * The screen renders whatever verdict the ledger service hands back -- it
- * never inspects hashes or decides whether the chain is intact. Integrity
- * states are data driven, so the tamper view is one service response away
- * rather than a separate screen.
+ * THE VERDICT IS NEVER DECIDED HERE
+ * ---------------------------------
+ * `integrity` starts null and is only ever set from GET /ledger/verify. No
+ * default of "verified", no optimistic state while loading, no local hashing.
+ * The claim is that a SHA-256 chain was walked on the server; a frontend that
+ * concluded "verified" on its own would be lying about exactly the thing this
+ * screen exists to prove.
+ *
+ * THE CHAIN IS DRAWN, NOT DESCRIBED
+ * ---------------------------------
+ * Entries are linked by a visible connector carrying each row's prev_hash, so
+ * "hash-chained" stops being a word in a pitch and becomes something a judge
+ * can see. Break one row and the connector at that point turns red.
+ *
+ * There is deliberately no "simulate tamper" button. To demonstrate detection,
+ * edit a row in backend/database.db and press Verify again. A fake button would
+ * prove nothing.
  */
-
-/** Maps a backend integrity result onto the card at the top of the screen. */
-function integrityView({ integrity, verifying }) {
-  if (verifying) {
-    return {
-      status: 'CHECKING',
-      tone: 'info',
-      icon: 'time',
-      accent: Colors.info,
-      headline: 'Checking ledger integrity...',
-      detail: 'Each record is being re-linked to the one before it.',
-    };
-  }
-
-  if (!integrity) {
-    return {
-      status: 'NOT CHECKED',
-      tone: 'neutral',
-      icon: 'help-circle',
-      accent: Colors.borderStrong,
-      headline: 'This ledger has not been verified yet.',
-      detail: 'Run a check to confirm the records are intact.',
-    };
-  }
-
-  if (!integrity.verified) {
-    return {
-      status: 'TAMPER DETECTED',
-      tone: 'error',
-      icon: 'warning',
-      accent: Colors.error,
-      headline: `1 of ${integrity.totalRecords} records failed verification.`,
-      detail: integrity.tamperedRecordId
-        ? `Affected record: ${integrity.tamperedRecordId}. Ask the group to review this entry before recording anything further.`
-        : 'Ask the group to review the ledger before recording anything further.',
-    };
-  }
-
-  if (integrity.checkedRecords < integrity.totalRecords) {
-    return {
-      status: 'WARNING',
-      tone: 'warning',
-      icon: 'alert-circle',
-      accent: Colors.warning,
-      headline: `Only ${integrity.checkedRecords} of ${integrity.totalRecords} records were checked.`,
-      detail: 'The check finished early. Run it again for a complete result.',
-    };
-  }
-
-  if (!integrity.totalRecords) {
-    return {
-      status: 'NO RECORDS',
-      tone: 'neutral',
-      icon: 'document-text',
-      accent: Colors.borderStrong,
-      headline: 'Nothing has been recorded yet.',
-      detail: 'The integrity check starts once the group records its first entry.',
-    };
-  }
-
-  return {
-    status: 'VERIFIED',
-    tone: 'success',
-    icon: 'shield-checkmark',
-    accent: Colors.success,
-    headline: `All ${integrity.totalRecords} records are intact.`,
-    detail: 'No tampering detected.',
-  };
-}
-
 export default function LedgerScreen() {
-  // Demo-only escape hatch: /ledger?demo=tampered | empty | error.
-  // Nothing in the UI links to it, so the normal route is always the
-  // verified ledger.
-  const { demo } = useLocalSearchParams();
+  const { signedIn, isTreasurer } = useAuth();
+  const { maxWidth } = useBreakpoint();
 
-  const [records, setRecords] = useState([]);
-  const [summary, setSummary] = useState(null);
+  const [entries, setEntries] = useState([]);
   const [integrity, setIntegrity] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [verifying, setVerifying] = useState(false);
+  const [status, setStatus] = useState('loading');
   const [error, setError] = useState(null);
-  const [verifyError, setVerifyError] = useState(null);
+  const [verifying, setVerifying] = useState(false);
+  const [expandedId, setExpandedId] = useState(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!signedIn || !isTreasurer) return;
+    setStatus('loading');
     setError(null);
-    setVerifyError(null);
     try {
-      // Always set it: leaving the mode alone would keep a ?demo= state
-      // sticky after navigating back to the plain /ledger route.
-      setLedgerDemoMode(demo);
-      const data = await getLedgerRecords();
-      setRecords(data.records);
-      setSummary(data.summary);
-      setIntegrity(data.integrity);
+      setEntries(await getAllEntries());
+      setStatus('ready');
     } catch (err) {
-      setError(err.message || 'Unable to load ledger records.');
-    } finally {
-      setLoading(false);
+      setError(err);
+      setStatus('error');
     }
-  }, [demo]);
+  }, [signedIn, isTreasurer]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      load();
+      // Verification is an action the treasurer takes. A stale "verified"
+      // badge sitting on screen would be worse than none at all.
+      setIntegrity(null);
+    }, [load])
+  );
 
-  const handleVerify = async () => {
-    if (verifying) return;
+  // Declared before any early return: hook order must not depend on role.
+  const verdictReveal = useReveal(!!integrity);
+
+  const runVerify = async () => {
     setVerifying(true);
-    setVerifyError(null);
+    setError(null);
     try {
       const result = await verifyLedger();
       setIntegrity(result);
-      setRecords((current) =>
-        current.map((record) => ({
-          ...record,
-          verified: record.id !== result.tamperedRecordId,
-        }))
-      );
+      // Re-read the rows so a highlighted break is definitely the row the
+      // server just judged.
+      setEntries(await getAllEntries());
     } catch (err) {
-      setVerifyError(err.message || 'Ledger verification could not be completed.');
+      setError(err);
+      setIntegrity(null);
     } finally {
       setVerifying(false);
     }
   };
 
-  const view = integrityView({ integrity, verifying });
+  if (!signedIn || !isTreasurer) {
+    return (
+      <View style={styles.screen}>
+        <SahaiHeader title="Secure Ledger" subtitle="Fund" showBack />
+        <View style={styles.gate}>
+          <EmptyState
+            icon="lock-closed-outline"
+            title={signedIn ? 'Treasurer access only' : 'Log in to verify records'}
+            body={
+              signedIn
+                ? 'Ledger verification is available to the SHG treasurer.'
+                : 'The group ledger is verified by the treasurer.'
+            }
+          />
+          {!signedIn && (
+            <PrimaryButton label="Log in" icon="log-in-outline" onPress={() => router.push('/login')} />
+          )}
+        </View>
+      </View>
+    );
+  }
+
+  const brokenId = integrity && !integrity.valid ? integrity.brokenEntryId : null;
 
   return (
     <View style={styles.screen}>
-      <SahaiHeader
-        title="SHG Secure Ledger"
-        subtitle="Finance"
-        showBack
-      />
+      <SahaiHeader title="Secure Ledger" subtitle="Treasurer" showBack />
 
-      {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={Colors.secondary} />
-          <Text style={styles.centeredText}>Loading secure ledger...</Text>
-        </View>
-      ) : error ? (
-        <View style={styles.centered}>
-          <View style={styles.stateIcon}>
-            <Ionicons name="cloud-offline-outline" size={26} color={Colors.error} />
-          </View>
-          <Text style={styles.stateTitle}>Unable to load ledger records.</Text>
-          <Text style={styles.stateBody}>Please try again.</Text>
-          <SecondaryButton label="Retry" icon="refresh" onPress={load} fullWidth={false} />
-        </View>
-      ) : (
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <View style={styles.inner}>
-            {/* Integrity ------------------------------------------------- */}
-            <View style={[styles.integrityCard, { borderLeftColor: view.accent }]}>
-              <View style={styles.integrityHeader}>
-                <View style={styles.integrityTitleBlock}>
-                  <Text style={styles.integrityLabel}>Ledger Integrity</Text>
-                  <Text style={styles.integrityStatus}>{view.status}</Text>
-                </View>
-                <StatusBadge label={view.status} tone={view.tone} icon={view.icon} />
-              </View>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={[styles.inner, { maxWidth: maxWidth('content') }]}>
+          {/* ---- Verification hero ---- */}
+          <View
+            style={[
+              styles.verifyHero,
+              integrity?.valid === true && styles.verifyValid,
+              integrity?.valid === false && styles.verifyBroken,
+            ]}
+          >
+            <Backdrop variant="fund" height={200} lines={7} />
 
-              <Text style={styles.integrityHeadline}>{view.headline}</Text>
-              <Text style={styles.integrityDetail}>{view.detail}</Text>
-
-              {!!integrity?.verifiedAt && !!integrity.totalRecords && !verifying && (
-                <View style={styles.integrityFooter}>
-                  <Text style={styles.integrityFooterLabel}>Last verified</Text>
-                  <Text style={styles.integrityFooterValue}>
-                    {formatRelativeDateTime(integrity.verifiedAt)}
+            {integrity === null ? (
+              <>
+                <Text style={styles.verifyEyebrow}>Chain integrity</Text>
+                <Text style={styles.verifyTitle}>Not checked yet</Text>
+                <Text style={styles.verifyBody}>
+                  Walk the chain to confirm no record has been altered since it was
+                  written.
+                </Text>
+              </>
+            ) : (
+              <Animated.View style={[styles.verdict, verdictReveal]}>
+                <View style={styles.verdictHead}>
+                  <Ionicons
+                    name={integrity.valid ? 'shield-checkmark' : 'warning'}
+                    size={26}
+                    color={integrity.valid ? Colors.success : Colors.error}
+                  />
+                  <Text
+                    style={[
+                      styles.verdictTitle,
+                      { color: integrity.valid ? Colors.success : Colors.error },
+                    ]}
+                  >
+                    {integrity.valid ? 'All records verified' : 'Tampering detected'}
                   </Text>
                 </View>
-              )}
-            </View>
 
-            <PrimaryButton
-              label="Verify Ledger"
-              icon="shield-checkmark"
-              loading={verifying}
-              loadingLabel="Verifying ledger integrity..."
-              onPress={handleVerify}
-            />
-
-            {!!verifyError && (
-              <View style={styles.verifyError}>
-                <Ionicons name="alert-circle" size={16} color={Colors.error} />
-                <Text style={styles.verifyErrorText}>{verifyError} Please try again.</Text>
-              </View>
+                <Text style={styles.verifyBody}>
+                  {integrity.valid
+                    ? `${entries.length} of ${entries.length} entries match their stored hash. Checked ${formatTime(integrity.checkedAt)}.`
+                    : `The chain breaks at entry #${integrity.brokenEntryId}. Its contents no longer match the hash recorded for it.`}
+                </Text>
+              </Animated.View>
             )}
 
-            {/* Summary --------------------------------------------------- */}
-            {!!summary && (
-              <View style={styles.section}>
-                <SectionHeader title="Ledger Summary" caption="What the chain holds today" />
-                <View style={styles.metricRow}>
-                  <MetricCard
-                    label="Total Records"
-                    value={String(summary.totalRecords)}
-                    icon="document-text"
-                    style={styles.metricCell}
-                  />
-                  <MetricCard
-                    label="Savings"
-                    value={String(summary.savingsEntries)}
-                    icon="wallet"
-                    style={styles.metricCell}
-                  />
-                </View>
-                <View style={styles.metricRow}>
-                  <MetricCard
-                    label="Loans"
-                    value={String(summary.loanEntries)}
-                    icon="cash"
-                    style={styles.metricCell}
-                  />
-                  <MetricCard
-                    label="Repayments"
-                    value={String(summary.repaymentEntries)}
-                    icon="refresh"
-                    style={styles.metricCell}
-                  />
-                </View>
-              </View>
-            )}
-
-            {/* Records --------------------------------------------------- */}
-            <View style={styles.section}>
-              <SectionHeader
-                title="Ledger Records"
-                caption={
-                  records.length
-                    ? `Latest ${records.length} of ${summary?.totalRecords ?? records.length} · tap a record for its hash details`
-                    : 'Nothing recorded yet'
-                }
+            {verifying ? (
+              <LoadingState message="Verifying record chain..." />
+            ) : (
+              <PrimaryButton
+                label={integrity === null ? 'Verify ledger' : 'Verify again'}
+                onPress={runVerify}
               />
+            )}
+          </View>
 
-              {records.length === 0 ? (
-                <View style={styles.emptyCard}>
-                  <View style={styles.stateIcon}>
-                    <Ionicons name="document-text-outline" size={26} color={Colors.secondary} />
-                  </View>
-                  <Text style={styles.stateTitle}>No ledger records yet</Text>
-                  <Text style={styles.stateBody}>
-                    Transactions recorded by your SHG will appear here.
-                  </Text>
-                </View>
-              ) : (
-                records.map((record) => (
-                  <LedgerRecordCard
-                    key={record.id}
-                    record={record}
-                    onPress={() =>
-                      router.push({ pathname: '/ledger-record', params: { id: record.id } })
-                    }
-                  />
-                ))
+          {!!error && <ErrorNotice error={error} onRetry={load} />}
+
+          {/* ---- The chain ---- */}
+          <View style={styles.section}>
+            <View style={styles.sectionHead}>
+              <Text style={styles.sectionLabel}>All entries</Text>
+              {status === 'ready' && (
+                <Text style={styles.sectionMeta}>{entries.length} in the chain</Text>
               )}
             </View>
 
-            {/* Explanation ----------------------------------------------- */}
-            <View style={styles.explainCard}>
-              <View style={styles.explainHeader}>
-                <View style={styles.explainIcon}>
-                  <Ionicons name="link" size={18} color={Colors.secondary} />
-                </View>
-                <Text style={styles.explainTitle}>How is this protected?</Text>
-              </View>
-              <Text style={styles.explainBody}>
-                Each financial record is linked to the previous record through a cryptographic
-                hash. If an old entry is altered, the ledger&apos;s integrity check can detect it.
-              </Text>
-            </View>
+            {status === 'loading' && <LoadingState message="Loading the chain..." rows={3} />}
+
+            {status === 'ready' && entries.length === 0 && (
+              <EmptyState
+                icon="link-outline"
+                title="No ledger entries yet"
+                body="The first recorded transaction starts the chain."
+              />
+            )}
+
+            {status === 'ready' &&
+              entries.map((entry, index) => (
+                <ChainEntry
+                  key={entry.id}
+                  entry={entry}
+                  broken={brokenId === entry.id}
+                  // Everything after a break inherits the problem, which is
+                  // the property that makes a hash chain worth having.
+                  downstream={brokenId !== null && entry.id > brokenId}
+                  first={index === 0}
+                  last={index === entries.length - 1}
+                  expanded={expandedId === entry.id}
+                  onToggle={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
+                />
+              ))}
           </View>
-        </ScrollView>
-      )}
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+/**
+ * One link in the chain.
+ *
+ * Note what is NOT shown: a per-row "verified" tick. The backend verifies the
+ * CHAIN, not individual rows, so ticking each one would imply a check that
+ * never happened. Only the entry the server named is called out.
+ */
+function ChainEntry({ entry, broken, downstream, first, last, expanded, onToggle }) {
+  return (
+    <View style={styles.chainRow}>
+      {/* Connector: the visual claim that these rows are linked. */}
+      <View style={styles.connector}>
+        <View
+          style={[
+            styles.connectorLine,
+            first && styles.connectorHidden,
+            (broken || downstream) && styles.connectorBroken,
+          ]}
+        />
+        <View
+          style={[
+            styles.node,
+            broken && styles.nodeBroken,
+            downstream && styles.nodeDownstream,
+          ]}
+        />
+        <View
+          style={[
+            styles.connectorLine,
+            styles.connectorGrow,
+            last && styles.connectorHidden,
+            downstream && styles.connectorBroken,
+          ]}
+        />
+      </View>
+
+      <Pressable
+        onPress={onToggle}
+        accessibilityRole="button"
+        accessibilityLabel={`Entry ${entry.id}, ${entry.entryType}`}
+        style={({ pressed }) => [
+          styles.entryBody,
+          broken && styles.entryBroken,
+          last && styles.entryLast,
+          pressed && styles.entryPressed,
+        ]}
+      >
+        <View style={styles.entryHead}>
+          <View style={styles.entryLeft}>
+            <Text style={styles.entryType}>
+              {ENTRY_TYPE_TREASURER_LABELS[entry.entryType] || entry.entryType}
+            </Text>
+            <Text style={styles.entryMeta}>
+              {entry.memberId} · {formatDate(entry.date)}
+            </Text>
+          </View>
+          <View style={styles.entryRight}>
+            <Text style={styles.entryAmount}>{formatCurrency(entry.amount)}</Text>
+            <Text style={styles.entryId}>#{entry.id}</Text>
+          </View>
+        </View>
+
+        {broken && (
+          <View style={styles.brokenNote}>
+            <Ionicons name="warning" size={15} color={Colors.error} />
+            <Text style={styles.brokenText}>
+              Contents no longer match the stored hash. Every entry after this one
+              is affected.
+            </Text>
+          </View>
+        )}
+
+        {expanded ? (
+          <View style={styles.hashes}>
+            <HashDisplay label="Links back to" hash={entry.prevHash} />
+            <HashDisplay label="This entry's hash" hash={entry.entryHash} tone="current" />
+          </View>
+        ) : (
+          <Text style={styles.hashPreview} numberOfLines={1}>
+            {entry.entryHash?.slice(0, 16)}…
+          </Text>
+        )}
+      </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  content: {
-    padding: Spacing.lg,
-    paddingBottom: Spacing.xxxl,
-  },
-  /** Centred column so a desktop browser does not stretch the cards. */
-  inner: {
-    width: '100%',
-    maxWidth: 720,
-    alignSelf: 'center',
-    gap: Spacing.lg,
-  },
-  centered: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.md,
+  screen: { flex: 1, backgroundColor: Colors.background },
+  content: { padding: Spacing.lg, paddingBottom: Spacing.section },
+  inner: { width: '100%', alignSelf: 'center', gap: Spacing.xl },
+  gate: { flex: 1, justifyContent: 'center', padding: Spacing.xl, gap: Spacing.lg },
+
+  // ---- verification hero ----
+  verifyHero: {
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.hero,
     padding: Spacing.xl,
-  },
-  centeredText: {
-    ...Typography.bodySmall,
-  },
-  stateIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: Radius.pill,
-    backgroundColor: Colors.surfaceAlt,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stateTitle: {
-    ...Typography.subtitle,
-    textAlign: 'center',
-  },
-  stateBody: {
-    ...Typography.bodySmall,
-    textAlign: 'center',
-  },
-  integrityCard: {
-    ...CardBase,
-    ...Shadow.card,
-    gap: Spacing.sm,
-    borderLeftWidth: 4,
-  },
-  integrityHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
     gap: Spacing.md,
+    overflow: 'hidden',
   },
-  integrityTitleBlock: {
+  verifyValid: { borderColor: Colors.success, backgroundColor: Colors.successSoft },
+  verifyBroken: { borderColor: Colors.error, backgroundColor: Colors.errorSoft },
+  verifyEyebrow: { ...Typography.sectionLabel, color: Colors.accent },
+  verifyTitle: { ...Typography.heading },
+  verifyBody: { ...Typography.bodySmall, lineHeight: 21 },
+  verdict: { gap: Spacing.sm },
+  verdictHead: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  verdictTitle: { ...Typography.heading, flex: 1 },
+
+  // ---- chain ----
+  section: { gap: Spacing.sm },
+  sectionHead: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+  },
+  sectionLabel: { ...Typography.sectionLabel },
+  sectionMeta: { ...Typography.caption },
+
+  chainRow: { flexDirection: 'row', gap: Spacing.md },
+  connector: { width: 14, alignItems: 'center' },
+  connectorLine: {
+    width: 2,
+    height: Spacing.md,
+    backgroundColor: Colors.borderStrong,
+  },
+  connectorGrow: { flex: 1 },
+  connectorHidden: { backgroundColor: 'transparent' },
+  connectorBroken: { backgroundColor: Colors.error, opacity: 0.5 },
+  node: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: Colors.accent,
+    borderWidth: 2,
+    borderColor: Colors.background,
+  },
+  nodeBroken: { backgroundColor: Colors.error, width: 14, height: 14, borderRadius: 7 },
+  nodeDownstream: { backgroundColor: Colors.error, opacity: 0.45 },
+
+  entryBody: {
     flex: 1,
-    minWidth: 0,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
     gap: Spacing.xs,
   },
-  integrityLabel: {
-    ...Typography.sectionLabel,
-  },
-  integrityStatus: {
-    ...Typography.title,
-    color: Colors.primary,
-  },
-  integrityHeadline: {
-    ...Typography.body,
-    fontWeight: '600',
-  },
-  integrityDetail: {
-    ...Typography.bodySmall,
-  },
-  integrityFooter: {
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-    paddingTop: Spacing.sm,
-    marginTop: Spacing.xs,
-    gap: 2,
-  },
-  integrityFooterLabel: {
-    ...Typography.caption,
-  },
-  integrityFooterValue: {
-    fontSize: FontSize.small,
-    fontWeight: '600',
-    color: Colors.text,
-  },
-  verifyError: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
+  entryLast: { borderBottomWidth: 0 },
+  entryBroken: {
     backgroundColor: Colors.errorSoft,
-    borderRadius: Radius.md,
-    padding: Spacing.md,
-    marginTop: -Spacing.sm,
+    borderRadius: Radius.sm,
+    paddingHorizontal: Spacing.md,
+    borderBottomColor: Colors.error,
   },
-  verifyErrorText: {
-    ...Typography.bodySmall,
-    color: Colors.error,
-    flex: 1,
+  entryPressed: { opacity: 0.65 },
+  entryHead: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.md },
+  entryLeft: { flex: 1, gap: 1 },
+  entryType: { ...Typography.body, fontWeight: '600' },
+  entryMeta: { ...Typography.caption },
+  entryRight: { alignItems: 'flex-end', gap: 1 },
+  entryAmount: {
+    fontSize: FontSize.body,
+    fontWeight: '700',
+    color: Colors.text,
+    fontVariant: ['tabular-nums'],
   },
-  section: {
-    gap: Spacing.md,
+  entryId: { ...Typography.caption },
+  hashPreview: {
+    fontSize: FontSize.caption,
+    color: Colors.textMuted,
+    fontFamily: 'monospace',
   },
-  metricRow: {
+  hashes: { gap: Spacing.sm, marginTop: Spacing.xs },
+  brokenNote: {
     flexDirection: 'row',
-    alignItems: 'stretch',
-    gap: Spacing.md,
-  },
-  metricCell: {
-    flex: 1,
-  },
-  emptyCard: {
-    ...CardBase,
-    ...Shadow.card,
-    alignItems: 'center',
     gap: Spacing.sm,
-    paddingVertical: Spacing.xl,
+    alignItems: 'flex-start',
+    marginTop: Spacing.xs,
   },
-  explainCard: {
-    ...CardBase,
-    backgroundColor: Colors.surfaceAlt,
-    gap: Spacing.sm,
-  },
-  explainHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  explainIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.accentSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  explainTitle: {
-    ...Typography.subtitle,
-    fontSize: 16,
-    flex: 1,
-  },
-  explainBody: {
-    ...Typography.bodySmall,
-    lineHeight: 20,
-  },
+  brokenText: { ...Typography.caption, color: Colors.error, flex: 1, lineHeight: 16 },
 });
