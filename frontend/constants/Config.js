@@ -41,6 +41,12 @@ const API_PORT = 5000;
  */
 const ENV_API_BASE_URL =
   typeof process !== 'undefined' ? process.env.EXPO_PUBLIC_API_BASE_URL : undefined;
+const ENV_AUTH_MODE =
+  typeof process !== 'undefined' ? process.env.EXPO_PUBLIC_AUTH_MODE : undefined;
+const ENV_KEYCLOAK_ISSUER =
+  typeof process !== 'undefined' ? process.env.EXPO_PUBLIC_KEYCLOAK_ISSUER : undefined;
+const ENV_KEYCLOAK_CLIENT_ID =
+  typeof process !== 'undefined' ? process.env.EXPO_PUBLIC_KEYCLOAK_CLIENT_ID : undefined;
 
 /** The host:port Expo served this bundle from, e.g. "192.168.1.7:8081". */
 function expoHost() {
@@ -58,10 +64,9 @@ function resolveApiBase() {
 
   // 2a. Web dev and web export: the browser and the backend share a machine.
   if (Platform.OS === 'web') {
-    if (typeof window !== 'undefined' && window.location?.hostname) {
-      return `http://${window.location.hostname}:${API_PORT}`;
-    }
-    return `http://localhost:${API_PORT}`;
+    // Use IPv4 explicitly: some Chrome/Windows configurations resolve
+    // localhost to ::1 while Uvicorn is listening on IPv4.
+    return `http://127.0.0.1:${API_PORT}`;
   }
 
   // 2b. Native: borrow the LAN IP the bundle arrived on.
@@ -78,6 +83,9 @@ function resolveApiBase() {
 const Config = {
   APP_NAME: 'SahAI',
   APP_TAGLINE: 'From Field to Fund',
+  AUTH_MODE: String(ENV_AUTH_MODE || 'local').toLowerCase(),
+  KEYCLOAK_ISSUER: String(ENV_KEYCLOAK_ISSUER || 'http://localhost:8080/realms/sahai').replace(/\/+$/, ''),
+  KEYCLOAK_CLIENT_ID: String(ENV_KEYCLOAK_CLIENT_ID || 'sahai-api'),
 
   API_BASE_URL: resolveApiBase(),
 

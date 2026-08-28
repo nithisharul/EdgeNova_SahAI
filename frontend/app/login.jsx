@@ -9,6 +9,14 @@ import {
   Pressable,
 } from 'react-native';
 import { router } from 'expo-router';
+import {
+  exchangeCodeAsync,
+  makeRedirectUri,
+  ResponseType,
+  useAuthRequest,
+  useAutoDiscovery,
+} from 'expo-auth-session';
+import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
 import SahaiHeader from '../components/SahaiHeader';
 import Backdrop from '../components/Backdrop';
@@ -19,8 +27,11 @@ import SelectField from '../components/SelectField';
 import PrimaryButton from '../components/PrimaryButton';
 import ErrorNotice from '../components/ErrorNotice';
 import Colors from '../constants/Colors';
+import Config from '../constants/Config';
 import { Spacing, Radius, Typography, FontSize, Motion } from '../constants/Theme';
 import { useAuth } from '../contexts/AuthContext';
+
+WebBrowser.maybeCompleteAuthSession();
 
 /**
  * Login and Register, one route, two modes.
@@ -35,7 +46,7 @@ import { useAuth } from '../contexts/AuthContext';
  * needs to see it -- so it is not rendered until the role makes it relevant.
  */
 export default function LoginScreen() {
-  const { signIn, signUp, signedIn, notice, clearNotice } = useAuth();
+  const { signIn, signUp, signInWithAccessToken, signedIn, notice, clearNotice } = useAuth();
   const { isDesktop, maxWidth } = useBreakpoint();
 
   const [mode, setMode] = useState('login'); // login | register
@@ -48,6 +59,24 @@ export default function LoginScreen() {
   const [errors, setErrors] = useState({});
   const [failure, setFailure] = useState(null);
   const [busy, setBusy] = useState(false);
+  const oidcEnabled = Config.AUTH_MODE === 'oidc';
+  // Keep the hook argument valid even while local authentication is selected.
+  // The discovery request is harmless in local mode and avoids a null issuer
+  // crashing the login screen before configuration can be changed.
+  const discovery = useAutoDiscovery(Config.KEYCLOAK_ISSUER);
+  // Return to this screen so the same AuthSession instance can exchange the
+  // authorization code with its PKCE verifier.
+  const redirectUri = makeRedirectUri({ scheme: 'sahai', path: 'login' });
+  const [request, response, promptAsync] = useAuthRequest(
+    {
+      clientId: Config.KEYCLOAK_CLIENT_ID,
+      responseType: ResponseType.Code,
+      usePKCE: true,
+      redirectUri,
+      scopes: ['openid', 'profile', 'email'],
+    },
+    discovery
+  );
 
   const registering = mode === 'register';
 
@@ -55,6 +84,30 @@ export default function LoginScreen() {
   useEffect(() => {
     if (signedIn) router.replace('/(tabs)/home');
   }, [signedIn]);
+
+  useEffect(() => {
+    if (!oidcEnabled || response?.type !== 'success' || !request?.codeVerifier || !discovery) return;
+    let active = true;
+    setBusy(true);
+    setFailure(null);
+    exchangeCodeAsync(
+      {
+        clientId: Config.KEYCLOAK_CLIENT_ID,
+        code: response.params.code,
+        redirectUri,
+        extraParams: { code_verifier: request.codeVerifier },
+      },
+      discovery
+    )
+      .then(async (tokens) => {
+        if (!active) return;
+        await signInWithAccessToken(tokens.accessToken);
+        router.replace('/(tabs)/home');
+      })
+      .catch((error) => active && setFailure(error))
+      .finally(() => active && setBusy(false));
+    return () => { active = false; };
+  }, [response, request, discovery, oidcEnabled, redirectUri, signInWithAccessToken]);
 
   const switchMode = (next) => {
     setMode(next);
@@ -167,7 +220,15 @@ export default function LoginScreen() {
             )}
             {!!failure && <ErrorNotice error={failure} />}
 
-            <View style={styles.form}>
+            {oidcEnabled ? (
+              <PrimaryButton
+                label="Sign in with organization account"
+                loading={busy}
+                loadingLabel="Opening secure sign-in..."
+                disabled={!request || !discovery}
+                onPress={() => promptAsync()}
+              />
+            ) : <View style={styles.form}>
               <InputField
                 label="Member ID"
                 value={memberId}
@@ -258,14 +319,14 @@ export default function LoginScreen() {
                   </View>
                 </View>
               )}
-            </View>
+            </View>}
 
-            <PrimaryButton
+            {!oidcEnabled && <PrimaryButton
               label={registering ? 'Create account' : 'Log in'}
                             loading={busy}
               loadingLabel={registering ? 'Creating account...' : 'Signing you in...'}
               onPress={submit}
-            />
+            />}
 
             <View style={styles.publicNote}>
               <Ionicons name="leaf" size={16} color={Colors.secondary} />

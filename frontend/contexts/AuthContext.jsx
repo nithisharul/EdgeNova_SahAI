@@ -58,6 +58,11 @@ export function AuthProvider({ children }) {
     return authService.login(credentials);
   }, []);
 
+  const signInWithAccessToken = useCallback(async (token) => {
+    setNotice(null);
+    return authService.loginWithAccessToken(token);
+  }, []);
+
   const signUp = useCallback(async (details) => {
     setNotice(null);
     return authService.register(details);
@@ -83,10 +88,11 @@ export function AuthProvider({ children }) {
       notice,
       clearNotice: () => setNotice(null),
       signIn,
+      signInWithAccessToken,
       signUp,
       signOut,
     }),
-    [session, restoring, notice, signIn, signUp, signOut]
+    [session, restoring, notice, signIn, signInWithAccessToken, signUp, signOut]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

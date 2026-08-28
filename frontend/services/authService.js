@@ -155,6 +155,18 @@ export async function login({ memberId, password }) {
   return adopt(response);
 }
 
+/** Adopt and validate a Keycloak access token obtained through OIDC. */
+export async function loginWithAccessToken(token) {
+  session = { token };
+  try {
+    const me = await apiGet(Config.ENDPOINTS.me);
+    return adopt({ token, member_id: me.member_id, role: me.role }, me.name || me.member_id);
+  } catch (error) {
+    setSession(null);
+    throw error;
+  }
+}
+
 /**
  * POST /auth/register.
  *
@@ -184,6 +196,7 @@ setTokenProvider(() => session?.token || null);
 
 export default {
   login,
+  loginWithAccessToken,
   register,
   logout,
   restoreSession,

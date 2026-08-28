@@ -16,7 +16,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.auth import SETUP_KEY, create_token, get_current_user
+from backend.auth import AUTH_MODE, SETUP_KEY, create_token, get_current_user
 from backend.models.user import create_user, authenticate
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -44,6 +44,8 @@ class LoginRequest(BaseModel):
 
 @router.post("/register")
 def register(payload: RegisterRequest):
+    if AUTH_MODE == "oidc":
+        raise HTTPException(status_code=404, detail="Local registration is disabled in OIDC mode.")
     if payload.role in PRIVILEGED_REGISTRATION_ROLES:
         if not SETUP_KEY:
             raise HTTPException(
@@ -72,6 +74,8 @@ def register(payload: RegisterRequest):
 
 @router.post("/login")
 def login(payload: LoginRequest):
+    if AUTH_MODE == "oidc":
+        raise HTTPException(status_code=404, detail="Local login is disabled in OIDC mode.")
     user = authenticate(payload.member_id, payload.password)
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid member_id or password.")

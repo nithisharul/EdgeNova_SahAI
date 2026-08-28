@@ -153,19 +153,19 @@ def install_signal_handlers():
     atexit.register(shutdown)
 
 
-def preflight():
+def preflight(backend_only=False, frontend_only=False):
     """Fail with a useful sentence rather than a stack trace."""
     problems = []
 
-    if not FRONTEND.exists():
+    if not backend_only and not FRONTEND.exists():
         problems.append(f"No frontend directory at {FRONTEND}")
-    elif not (FRONTEND / "node_modules").exists():
+    elif not backend_only and not (FRONTEND / "node_modules").exists():
         problems.append("Frontend dependencies missing. Run: cd frontend && npm install")
 
     if not (ROOT / "backend" / "app.py").exists():
         problems.append(f"No backend/app.py under {ROOT}")
 
-    if shutil.which("npm") is None:
+    if not backend_only and shutil.which("npm") is None:
         problems.append("npm is not on PATH. Install Node.js.")
 
     try:
@@ -234,7 +234,7 @@ def main():
     )
     args = parser.parse_args()
 
-    problems = preflight()
+    problems = preflight(backend_only=args.backend, frontend_only=args.frontend)
     if problems:
         print("Cannot start SahAI:\n")
         for problem in problems:
