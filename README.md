@@ -1,5 +1,7 @@
 # Running SahAI locally
 
+For LDAP SSO and Keycloak troubleshooting, see [docs/SSO_TROUBLESHOOTING.md](docs/SSO_TROUBLESHOOTING.md).
+
 One command from the repository root starts both halves:
 
 ```bash

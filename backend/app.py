@@ -13,7 +13,10 @@ app = FastAPI(title="sahAI API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
+    # Expo may select any available local port. The app uses bearer headers,
+    # not browser cookies, so wildcard CORS is sufficient for local dev.
     allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

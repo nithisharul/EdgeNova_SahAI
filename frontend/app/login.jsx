@@ -74,6 +74,7 @@ export default function LoginScreen() {
       usePKCE: true,
       redirectUri,
       scopes: ['openid', 'profile', 'email'],
+      extraParams: { prompt: 'login' },
     },
     discovery
   );

@@ -129,7 +129,11 @@ async function raw(method, path, { body, token } = {}) {
   } catch (error) {
     // fetch only rejects on transport failure; an HTTP error status resolves.
     const kind = error?.name === 'AbortError' ? 'timeout' : 'network';
-    throw new ApiError(kind, MESSAGES[kind], { detail: String(error?.message || error) });
+    throw new ApiError(
+      kind,
+      `${MESSAGES[kind]} (${method} ${url})`,
+      { detail: String(error?.message || error) }
+    );
   } finally {
     clearTimeout(timer);
   }
