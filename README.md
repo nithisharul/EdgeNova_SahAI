@@ -1,3 +1,15 @@
+# Keyclock Authentication
+
+28/08/2026
+Done setting up Keyclock Authentication setup
+
+### Issues
+Sign On can't connect to Backend
+
+
+
+
+
 # Running SahAI locally
 
 For LDAP SSO and Keycloak troubleshooting, see [docs/SSO_TROUBLESHOOTING.md](docs/SSO_TROUBLESHOOTING.md).
