@@ -18,6 +18,7 @@ import { useBreakpoint } from '../utils/layout';
 import { useReveal } from '../utils/motion';
 import { useAuth } from '../contexts/AuthContext';
 import { getAllEntries, verifyLedger, ENTRY_TYPE_TREASURER_LABELS } from '../services/ledgerService';
+import { useDataVersion } from '../services/dataSync';
 
 /**
  * Secure Ledger -- the security demo, and the clearest argument this product
@@ -65,13 +66,17 @@ export default function LedgerScreen() {
     }
   }, [signedIn, isTreasurer]);
 
+  // Re-reads when a write elsewhere changes server state, not only on focus.
+  const dataVersion = useDataVersion();
+
   useFocusEffect(
     useCallback(() => {
       load();
-      // Verification is an action the treasurer takes. A stale "verified"
-      // badge sitting on screen would be worse than none at all.
+      // Verification is an action the treasurer takes, and any write since the
+      // last check invalidates it. A stale "verified" badge would be worse
+      // than none at all.
       setIntegrity(null);
-    }, [load])
+    }, [load, dataVersion])
   );
 
   // Declared before any early return: hook order must not depend on role.

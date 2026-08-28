@@ -1,5 +1,6 @@
 import Config from '../constants/Config';
 import { apiGet, apiPost } from './apiClient';
+import { notifyDataChanged } from './dataSync';
 
 /**
  * The tamper-evident ledger.
@@ -83,6 +84,11 @@ export async function addLedgerEntry({ memberId, entryType, amount }) {
     entry_type: entryType,
     amount: value,
   });
+
+  // The write moved the member's portfolio, the group corpus and the ledger
+  // list. Tell any mounted screen to re-read them from the server rather than
+  // adjusting its own copy.
+  notifyDataChanged();
 
   return {
     id: raw.id,

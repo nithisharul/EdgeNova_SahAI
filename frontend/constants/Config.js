@@ -11,20 +11,36 @@ import { Platform } from 'react-native';
  *
  * WHERE THE BACKEND LIVES
  * -----------------------
- * The API runs on port 5000 (`uvicorn backend.app:app --reload --port 5000`).
+ * The API runs on port 5000 (`python dev.py`, or
+ * `uvicorn backend.app:app --reload --port 5000`).
  *
- * "localhost" is resolved by whatever device the JavaScript runs on, so it only
- * works in a browser on the same machine as the server. On a phone, localhost
- * is the PHONE. resolveApiBase() therefore reuses the LAN address Expo already
- * dialled to load the bundle -- during development that is the same machine the
- * backend is on. Set API_HOST_OVERRIDE when that guess is wrong (a tunnel, or a
- * backend running on a different box).
+ * Resolved in three steps, first match wins:
+ *
+ *   1. EXPO_PUBLIC_API_BASE_URL   an explicit override, for a phone or a
+ *                                 backend on another machine
+ *   2. the address Expo served    on web, the browser's own host; on native,
+ *      this bundle from           the LAN IP the bundle arrived on, which in
+ *                                 development is the same machine as the API
+ *   3. localhost                  last resort
+ *
+ * Step 2 matters because "localhost" is resolved by whatever device runs the
+ * JavaScript. In a browser on the dev machine that is correct; on a PHONE
+ * localhost is the phone, and the request would never leave it.
+ *
+ * NO DEVELOPER'S IP IS COMMITTED HERE. To point a physical phone at your
+ * machine, set the variable in frontend/.env.local (gitignored) or inline:
+ *
+ *   EXPO_PUBLIC_API_BASE_URL=http://192.168.1.7:5000 npm start
  */
 
 const API_PORT = 5000;
 
-/** Set to e.g. '192.168.1.7' to force a host. null = detect automatically. */
-const API_HOST_OVERRIDE = null;
+/**
+ * Expo inlines EXPO_PUBLIC_* at build time, so this is a literal lookup rather
+ * than a dynamic one -- process.env[name] would not be substituted.
+ */
+const ENV_API_BASE_URL =
+  typeof process !== 'undefined' ? process.env.EXPO_PUBLIC_API_BASE_URL : undefined;
 
 /** The host:port Expo served this bundle from, e.g. "192.168.1.7:8081". */
 function expoHost() {
@@ -37,9 +53,10 @@ function expoHost() {
 }
 
 function resolveApiBase() {
-  if (API_HOST_OVERRIDE) return `http://${API_HOST_OVERRIDE}:${API_PORT}`;
+  // 1. Explicit override always wins.
+  if (ENV_API_BASE_URL) return String(ENV_API_BASE_URL).replace(/\/+$/, '');
 
-  // Web dev + web export: the browser and the backend share a machine.
+  // 2a. Web dev and web export: the browser and the backend share a machine.
   if (Platform.OS === 'web') {
     if (typeof window !== 'undefined' && window.location?.hostname) {
       return `http://${window.location.hostname}:${API_PORT}`;
@@ -47,14 +64,14 @@ function resolveApiBase() {
     return `http://localhost:${API_PORT}`;
   }
 
-  // Native: borrow the LAN IP the bundle arrived on.
+  // 2b. Native: borrow the LAN IP the bundle arrived on.
   const host = expoHost().split(':')[0];
   if (host && host !== 'localhost' && host !== '127.0.0.1') {
     return `http://${host}:${API_PORT}`;
   }
 
-  // Last resort. Correct for an emulator sharing the host's loopback; on a
-  // physical phone it fails fast and visibly rather than silently.
+  // 3. Correct for an emulator sharing the host's loopback; on a physical
+  // phone it fails fast and visibly rather than silently.
   return `http://localhost:${API_PORT}`;
 }
 

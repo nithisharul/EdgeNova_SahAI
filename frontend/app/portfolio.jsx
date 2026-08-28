@@ -18,6 +18,7 @@ import { useBreakpoint } from '../utils/layout';
 import { useReveal } from '../utils/motion';
 import { useAuth } from '../contexts/AuthContext';
 import { getPortfolio } from '../services/portfolioService';
+import { useDataVersion } from '../services/dataSync';
 import { ENTRY_TYPE_LABELS } from '../services/ledgerService';
 
 /**
@@ -61,10 +62,13 @@ export default function PortfolioScreen() {
     }
   }, [signedIn, targetId]);
 
+  // Re-reads when a write elsewhere changes server state, not only on focus.
+  const dataVersion = useDataVersion();
+
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [load])
+    }, [load, dataVersion])
   );
 
   const reveal = useReveal(status === 'ready');

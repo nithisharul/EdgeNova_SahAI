@@ -1,3 +1,56 @@
+# Running SahAI locally
+
+One command from the repository root starts both halves:
+
+```bash
+python dev.py
+```
+
+| | |
+|---|---|
+| Backend | `http://localhost:5000` — FastAPI, API docs at `/docs` |
+| Frontend | Expo dev server — press `w` for web |
+
+Both hot-reload: editing a `.py` file restarts the API, editing a `.jsx` file
+Fast Refreshes the app. `Ctrl+C` stops both.
+
+First time only:
+
+```bash
+pip install -r requirements.txt
+cd frontend && npm install && cd ..
+python scripts/seed_demo.py     # optional: demo accounts and ledger history
+```
+
+Other options: `python dev.py --backend`, `--frontend`, `--web`, or
+`--host 0.0.0.0` to reach the API from another device.
+
+### Testing on a physical phone
+
+`localhost` on a phone means the phone, so point the app at your machine's LAN
+address. Create `frontend/.env.local` (gitignored):
+
+```
+EXPO_PUBLIC_API_BASE_URL=http://192.168.1.7:5000
+```
+
+Use your own IP (`ipconfig` / `ifconfig`), start the backend with
+`python dev.py --host 0.0.0.0`, and keep both devices on the same Wi-Fi. On web
+and in emulators the address is detected automatically and this is unnecessary.
+
+### Treasurer registration
+
+Creating a treasurer account requires a shared secret, since a treasurer can
+read every member's finances. Set it before starting:
+
+```bash
+SAHAI_SETUP_KEY=<your-key> python dev.py
+```
+
+Without it, treasurer registration is disabled — which is the safe default.
+
+---
+
 # Security & Authentication
 
 This project uses a layered authentication and authorization system to protect user accounts, financial operations, ledgers, and portfolios.

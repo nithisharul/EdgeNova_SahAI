@@ -16,6 +16,7 @@ import { useBreakpoint } from '../utils/layout';
 import { useReveal } from '../utils/motion';
 import { useAuth } from '../contexts/AuthContext';
 import { getGroupSummary } from '../services/groupService';
+import { useDataVersion } from '../services/dataSync';
 
 /**
  * Group Summary -- the treasurer's view of the whole book.
@@ -53,10 +54,13 @@ export default function GroupSummaryScreen() {
     }
   }, [signedIn, isTreasurer]);
 
+  // Re-reads when a write elsewhere changes server state, not only on focus.
+  const dataVersion = useDataVersion();
+
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [load])
+    }, [load, dataVersion])
   );
 
   const reveal = useReveal(status === 'ready');

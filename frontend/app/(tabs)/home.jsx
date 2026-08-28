@@ -18,6 +18,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { getPortfolio } from '../../services/portfolioService';
 import { getGroupSummary } from '../../services/groupService';
 import { getLastAdvisory } from '../../services/sessionState';
+import { useDataVersion } from '../../services/dataSync';
 
 /**
  * Home -- three different screens behind one route.
@@ -99,10 +100,13 @@ export default function HomeScreen() {
     }
   }, [signedIn, memberId, isTreasurer]);
 
+  // Re-reads when a write elsewhere changes server state, not only on focus.
+  const dataVersion = useDataVersion();
+
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [load])
+    }, [load, dataVersion])
   );
 
   const reveal = useReveal(status === 'ready');
