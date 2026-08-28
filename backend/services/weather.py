@@ -143,7 +143,7 @@ def fetch_weather(latitude: float, longitude: float) -> dict:
             hist.raise_for_status()
             daily = (hist.json().get("daily") or {}).get("precipitation_sum") or []
     except httpx.HTTPError as e:
-        log.warning("Weather fetch failed for %s,%s: %s", latitude, longitude, e)
+        log.warning("Weather fetch failed for provided location: %s", e)
         raise WeatherUnavailable(
             "Weather service is unreachable. Please enter temperature, humidity "
             "and rainfall manually."
