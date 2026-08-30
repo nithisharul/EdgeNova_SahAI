@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,6 @@ import {
   makeRedirectUri,
   ResponseType,
   useAuthRequest,
-  useAutoDiscovery,
 } from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
@@ -60,10 +59,14 @@ export default function LoginScreen() {
   const [failure, setFailure] = useState(null);
   const [busy, setBusy] = useState(false);
   const oidcEnabled = Config.AUTH_MODE === 'oidc';
-  // Keep the hook argument valid even while local authentication is selected.
-  // The discovery request is harmless in local mode and avoids a null issuer
-  // crashing the login screen before configuration can be changed.
-  const discovery = useAutoDiscovery(Config.KEYCLOAK_ISSUER);
+  // Keycloak exposes these standard endpoints for every realm. Constructing
+  // them avoids an eager discovery fetch crashing the screen when Docker or
+  // Keycloak is temporarily stopped.
+  const discovery = useMemo(() => ({
+    authorizationEndpoint: `${Config.KEYCLOAK_ISSUER}/protocol/openid-connect/auth`,
+    tokenEndpoint: `${Config.KEYCLOAK_ISSUER}/protocol/openid-connect/token`,
+    revocationEndpoint: `${Config.KEYCLOAK_ISSUER}/protocol/openid-connect/logout`,
+  }), []);
   // Return to this screen so the same AuthSession instance can exchange the
   // authorization code with its PKCE verifier.
   const redirectUri = makeRedirectUri({ scheme: 'sahai', path: 'login' });
