@@ -13,29 +13,58 @@ import time
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from backend.db_path import DB_PATH
+import psycopg
+
+from backend.db_path import DATABASE_URL, DB_PATH, is_postgres
 from backend.models.transaction import LedgerEntry, compute_hash, GENESIS_HASH
 
 
 def get_connection():
+    if is_postgres():
+        return psycopg.connect(DATABASE_URL)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
 
+def _rows_to_dicts(rows, cursor=None):
+    if not rows:
+        return []
+    first = rows[0]
+    if hasattr(first, "keys") or hasattr(first, "_mapping"):
+        return [dict(r) for r in rows]
+    if cursor is not None and getattr(cursor, "description", None):
+        columns = [desc[0] for desc in cursor.description]
+        return [dict(zip(columns, row)) for row in rows]
+    return [dict(row) for row in rows]
+
+
 def init_db():
     conn = get_connection()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS ledger (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            member_id TEXT NOT NULL,
-            entry_type TEXT NOT NULL,
-            amount REAL NOT NULL,
-            timestamp REAL NOT NULL,
-            prev_hash TEXT NOT NULL,
-            entry_hash TEXT NOT NULL
-        )
-    """)
+    if is_postgres():
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ledger (
+                id SERIAL PRIMARY KEY,
+                member_id TEXT NOT NULL,
+                entry_type TEXT NOT NULL,
+                amount DOUBLE PRECISION NOT NULL,
+                timestamp DOUBLE PRECISION NOT NULL,
+                prev_hash TEXT NOT NULL,
+                entry_hash TEXT NOT NULL
+            )
+        """)
+    else:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ledger (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                member_id TEXT NOT NULL,
+                entry_type TEXT NOT NULL,
+                amount REAL NOT NULL,
+                timestamp REAL NOT NULL,
+                prev_hash TEXT NOT NULL,
+                entry_hash TEXT NOT NULL
+            )
+        """)
     conn.commit()
     conn.close()
 
@@ -44,7 +73,9 @@ def get_last_hash(conn) -> str:
     row = conn.execute(
         "SELECT entry_hash FROM ledger ORDER BY id DESC LIMIT 1"
     ).fetchone()
-    return row["entry_hash"] if row else GENESIS_HASH
+    if row is None:
+        return GENESIS_HASH
+    return row[0] if isinstance(row, tuple) else row["entry_hash"]
 
 
 def add_entry(member_id: str, entry_type: str, amount: float) -> LedgerEntry:
@@ -53,13 +84,21 @@ def add_entry(member_id: str, entry_type: str, amount: float) -> LedgerEntry:
     timestamp = time.time()
     entry_hash = compute_hash(member_id, entry_type, amount, timestamp, prev_hash)
 
-    cur = conn.execute(
-        """INSERT INTO ledger (member_id, entry_type, amount, timestamp, prev_hash, entry_hash)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (member_id, entry_type, amount, timestamp, prev_hash, entry_hash),
-    )
+    if is_postgres():
+        cur = conn.execute(
+            """INSERT INTO ledger (member_id, entry_type, amount, timestamp, prev_hash, entry_hash)
+               VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
+            (member_id, entry_type, amount, timestamp, prev_hash, entry_hash),
+        )
+        entry_id = cur.fetchone()[0]
+    else:
+        cur = conn.execute(
+            """INSERT INTO ledger (member_id, entry_type, amount, timestamp, prev_hash, entry_hash)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (member_id, entry_type, amount, timestamp, prev_hash, entry_hash),
+        )
+        entry_id = cur.lastrowid
     conn.commit()
-    entry_id = cur.lastrowid
     conn.close()
 
     return LedgerEntry(entry_id, member_id, entry_type, amount, timestamp, prev_hash, entry_hash)
@@ -67,9 +106,10 @@ def add_entry(member_id: str, entry_type: str, amount: float) -> LedgerEntry:
 
 def get_all_entries():
     conn = get_connection()
-    rows = conn.execute("SELECT * FROM ledger ORDER BY id ASC").fetchall()
+    cursor = conn.execute("SELECT * FROM ledger ORDER BY id ASC")
+    rows = cursor.fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    return _rows_to_dicts(rows, cursor)
 
 
 def verify_chain():

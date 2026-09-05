@@ -1,6 +1,7 @@
 """
 User storage -- member_id, name, hashed password (PIN), and role
-("member", "treasurer" or "admin"). Lives in the same SQLite DB as the ledger.
+("member", "treasurer" or "admin"). Uses SQLite locally and PostgreSQL when
+DATABASE_URL is set for shared live deployments.
 
 Existing databases are migrated in init_users_db() when their role constraint
 does not yet include admin.
@@ -10,8 +11,10 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Optional
 
+import psycopg
+
 from backend.auth import hash_password, verify_password
-from backend.db_path import DB_PATH
+from backend.db_path import DATABASE_URL, DB_PATH, is_postgres
 
 
 @dataclass
@@ -22,6 +25,8 @@ class User:
 
 
 def get_connection():
+    if is_postgres():
+        return psycopg.connect(DATABASE_URL)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
@@ -29,26 +34,56 @@ def get_connection():
 
 def init_users_db():
     conn = get_connection()
-    existing_schema = conn.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'"
-    ).fetchone()
-    needs_migration = existing_schema and "'admin'" not in existing_schema["sql"]
-    if needs_migration:
-        conn.execute("ALTER TABLE users RENAME TO users_legacy")
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            member_id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            password_hash TEXT NOT NULL,
-            role TEXT NOT NULL CHECK (role IN ('member', 'treasurer', 'admin'))
-        )
-    """)
-    if needs_migration:
+
+    if is_postgres():
+        exists = conn.execute(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'users')"
+        ).fetchone()[0]
+        legacy = False
+        if exists:
+            has_role = conn.execute(
+                "SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'role')"
+            ).fetchone()[0]
+            legacy = not has_role
+
+        if legacy:
+            conn.execute("ALTER TABLE users RENAME TO users_legacy")
         conn.execute("""
-            INSERT INTO users (member_id, name, password_hash, role)
-            SELECT member_id, name, password_hash, role FROM users_legacy
+            CREATE TABLE IF NOT EXISTS users (
+                member_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL CHECK (role IN ('member', 'treasurer', 'admin'))
+            )
         """)
-        conn.execute("DROP TABLE users_legacy")
+        if legacy:
+            conn.execute("""
+                INSERT INTO users (member_id, name, password_hash, role)
+                SELECT member_id, name, password_hash, role FROM users_legacy
+            """)
+            conn.execute("DROP TABLE users_legacy")
+    else:
+        existing_schema = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'"
+        ).fetchone()
+        needs_migration = existing_schema and "'admin'" not in existing_schema["sql"]
+        if needs_migration:
+            conn.execute("ALTER TABLE users RENAME TO users_legacy")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                member_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL CHECK (role IN ('member', 'treasurer', 'admin'))
+            )
+        """)
+        if needs_migration:
+            conn.execute("""
+                INSERT INTO users (member_id, name, password_hash, role)
+                SELECT member_id, name, password_hash, role FROM users_legacy
+            """)
+            conn.execute("DROP TABLE users_legacy")
+
     conn.commit()
     conn.close()
 
@@ -56,16 +91,35 @@ def init_users_db():
 def create_user(member_id: str, name: str, password: str, role: str) -> User:
     if role not in ("admin", "member", "treasurer"):
         raise ValueError("role must be 'admin', 'member', or 'treasurer'")
-    conn = get_connection()
-    existing = conn.execute("SELECT member_id FROM users WHERE member_id = ?", (member_id,)).fetchone()
-    if existing:
-        conn.close()
-        raise ValueError(f"member_id '{member_id}' is already registered.")
 
-    conn.execute(
-        "INSERT INTO users (member_id, name, password_hash, role) VALUES (?, ?, ?, ?)",
-        (member_id, name, hash_password(password), role),
-    )
+    conn = get_connection()
+    if is_postgres():
+        existing = conn.execute(
+            "SELECT member_id FROM users WHERE member_id = %s",
+            (member_id,),
+        ).fetchone()
+        if existing:
+            conn.close()
+            raise ValueError(f"member_id '{member_id}' is already registered.")
+
+        conn.execute(
+            "INSERT INTO users (member_id, name, password_hash, role) VALUES (%s, %s, %s, %s)",
+            (member_id, name, hash_password(password), role),
+        )
+    else:
+        existing = conn.execute(
+            "SELECT member_id FROM users WHERE member_id = ?",
+            (member_id,),
+        ).fetchone()
+        if existing:
+            conn.close()
+            raise ValueError(f"member_id '{member_id}' is already registered.")
+
+        conn.execute(
+            "INSERT INTO users (member_id, name, password_hash, role) VALUES (?, ?, ?, ?)",
+            (member_id, name, hash_password(password), role),
+        )
+
     conn.commit()
     conn.close()
     return User(member_id, name, role)
@@ -73,9 +127,29 @@ def create_user(member_id: str, name: str, password: str, role: str) -> User:
 
 def authenticate(member_id: str, password: str) -> Optional[User]:
     conn = get_connection()
-    row = conn.execute("SELECT * FROM users WHERE member_id = ?", (member_id,)).fetchone()
+    if is_postgres():
+        row = conn.execute(
+            "SELECT member_id, name, password_hash, role FROM users WHERE member_id = %s",
+            (member_id,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT * FROM users WHERE member_id = ?",
+            (member_id,),
+        ).fetchone()
     conn.close()
 
-    if row is None or not verify_password(password, row["password_hash"]):
+    if row is None:
         return None
-    return User(row["member_id"], row["name"], row["role"])
+
+    if is_postgres():
+        member_id_value, name_value, password_hash, role_value = row
+    else:
+        member_id_value = row["member_id"]
+        name_value = row["name"]
+        password_hash = row["password_hash"]
+        role_value = row["role"]
+
+    if not verify_password(password, password_hash):
+        return None
+    return User(member_id_value, name_value, role_value)

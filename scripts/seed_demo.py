@@ -43,7 +43,8 @@ import time
 # Make `backend` importable when run as `python scripts/seed_demo.py`
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.ledger import DB_PATH, add_entry, get_all_entries, init_db, verify_chain
+from backend.db_path import DATABASE_URL, DB_PATH, is_postgres
+from backend.ledger import add_entry, get_all_entries, init_db, verify_chain
 from backend.models.user import authenticate, create_user, init_users_db
 
 DAY = 86400.0
@@ -95,6 +96,9 @@ def ensure_user(spec: dict) -> str:
 
 
 def reset_database():
+    if is_postgres():
+        print("[i] PostgreSQL database configured via DATABASE_URL; reset is handled by dropping tables manually if needed.")
+        return
     if not os.path.exists(DB_PATH):
         print(f"[i] No database at {DB_PATH} - nothing to reset.")
         return
@@ -116,6 +120,20 @@ def backdate_last_entry(months_ago: float, jitter_days: float = 0.0):
     """
     from backend.models.transaction import compute_hash
 
+    if is_postgres():
+        import psycopg
+        conn = psycopg.connect(DATABASE_URL)
+        row = conn.execute("SELECT * FROM ledger ORDER BY id DESC LIMIT 1").fetchone()
+        if row is None:
+            conn.close()
+            return
+        new_ts = time.time() - (months_ago * MONTH) + (jitter_days * DAY)
+        conn.execute("UPDATE ledger SET timestamp = %s WHERE id = %s", (new_ts, row[0]))
+        conn.commit()
+        conn.close()
+        rehash_chain()
+        return
+
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     row = conn.execute("SELECT * FROM ledger ORDER BY id DESC LIMIT 1").fetchone()
@@ -133,6 +151,24 @@ def backdate_last_entry(months_ago: float, jitter_days: float = 0.0):
 def rehash_chain():
     """Recompute every hash in order so the chain stays internally consistent."""
     from backend.models.transaction import GENESIS_HASH, compute_hash
+
+    if is_postgres():
+        import psycopg
+        conn = psycopg.connect(DATABASE_URL)
+        rows = conn.execute("SELECT * FROM ledger ORDER BY id ASC").fetchall()
+        prev = GENESIS_HASH
+        for r in rows:
+            entry_hash = compute_hash(
+                r[1], r[2], r[3], r[4], prev
+            )
+            conn.execute(
+                "UPDATE ledger SET prev_hash = %s, entry_hash = %s WHERE id = %s",
+                (prev, entry_hash, r[0]),
+            )
+            prev = entry_hash
+        conn.commit()
+        conn.close()
+        return
 
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row

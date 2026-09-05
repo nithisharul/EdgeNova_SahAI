@@ -1,375 +1,427 @@
-# Keyclock Authentication
+﻿# SahAI
 
-28/08/2026
-Done setting up Keyclock Authentication setup
+SahAI is an agriculture-focused digital platform for self-help groups (SHGs), designed to combine crop guidance, fertilizer recommendations, financial tracking, and loan risk evaluation in one system.
 
-### Issues
-Sign On can't connect to Backend
+It includes:
+- a FastAPI backend for authentication, APIs, and ML-powered recommendations
+- an Expo/React Native frontend for mobile and web use
+- Keycloak + OpenLDAP support for enterprise identity integration
+- a ledger-based financial audit trail for member savings and loans
 
+---
 
+## Features
 
+### 1. Crop advisory
+- Recommends suitable crops from agronomic inputs such as nitrogen, phosphorus, potassium, rainfall, humidity, and temperature.
+- Uses a trained crop recommendation model.
+- Provides explanation-style output for the recommended crop.
 
+### 2. Fertilizer recommendation
+- Recommends fertilizer types based on soil and crop conditions.
+- Supports both fertilizer dataset crop names and crop-model crop names.
+- Uses the trained fertilizer prediction pipeline.
 
-# Running SahAI locally
+### 3. Loan risk assessment
+- Calculates a member's loan risk score based on requested amount and savings consistency.
+- Uses a trained loan model and ledger-based financial signals.
+- Helps the treasurer evaluate member eligibility for internal loans.
 
-For LDAP SSO and Keycloak troubleshooting, see [docs/SSO_TROUBLESHOOTING.md](docs/SSO_TROUBLESHOOTING.md).
+### 4. Ledger and portfolio management
+- Records member transactions such as savings deposits, loan disbursements, and repayments.
+- Maintains a hash-chained financial ledger for tamper detection.
+- Provides portfolio summaries for individual members and group-level tracking.
 
-One command from the repository root starts both halves:
+### 5. Authentication and authorization
+- Member, treasurer, and admin roles.
+- JWT-based authentication for protected API endpoints.
+- Basic ownership checks so members can only see their own portfolio data.
+- Optional Keycloak/OpenLDAP single-sign-on integration.
+
+### 6. Admin and treasurer tools
+- Manage member roles.
+- Review group summaries and portfolio data.
+- Verify ledger integrity.
+- Enable or disable treasurer setup flow based on environment configuration.
+
+---
+
+## Tech stack
+
+- Backend: FastAPI, Uvicorn, PostgreSQL (SQLite fallback for local development), JWT, PyJWT
+- Frontend: Expo, React Native, React
+- ML: scikit-learn, XGBoost, pandas, numpy, joblib
+- Identity: Keycloak, OpenLDAP, Docker Compose
+
+---
+
+## Project structure
+
+```text
+.
+├── backend/
+│   ├── app.py
+│   ├── auth.py
+│   ├── ledger.py
+│   ├── models/
+│   ├── routes/
+│   └── services/
+├── frontend/
+│   ├── app/
+│   ├── components/
+│   ├── contexts/
+│   ├── services/
+│   └── package.json
+├── models/
+│   ├── train_crop_model.py
+│   ├── train_fertilizer_model.py
+│   ├── train_loan_model.py
+│   └── *.joblib / *.pth artifacts
+├── scripts/
+│   └── seed_demo.py
+├── docs/
+│   ├── KEYCLOAK_OPENLDAP.md
+│   ├── SSO_TROUBLESHOOTING.md
+│   └── SahAI_Frontend_Backend_Gap_Analysis.md
+├── docker-compose.keycloak.yml
+├── dev.py
+├── requirements.txt
+├── README.md
+└── test.py
+```
+
+---
+
+## Prerequisites
+
+Before running the project, make sure you have:
+
+- Python 3.10+ or 3.11+
+- Node.js 18+ and npm
+- Docker Desktop or Docker Engine with Compose support
+- Git
+
+Confirm installation:
+
+```bash
+python --version
+node --version
+npm --version
+docker --version
+docker compose version
+```
+
+---
+
+## 1) Install dependencies
+
+From the project root:
+
+```bash
+python -m venv .venv
+```
+
+On Windows PowerShell:
+
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+On macOS/Linux:
+
+```bash
+source .venv/bin/activate
+```
+
+Then install Python dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Install frontend dependencies:
+
+```bash
+cd frontend
+npm install
+cd ..
+```
+
+---
+
+## 2) Environment variables
+
+Create local environment variables before running the backend:
+
+```powershell
+$env:SAHAI_SECRET_KEY = "your-secret-key"
+$env:SAHAI_SETUP_KEY = "your-treasurer-secret"
+$env:DATABASE_URL = "postgresql://user:password@host:5432/database"
+```
+
+On macOS/Linux:
+
+```bash
+export SAHAI_SECRET_KEY="your-secret-key"
+export SAHAI_SETUP_KEY="your-treasurer-secret"
+export DATABASE_URL="postgresql://user:password@host:5432/database"
+```
+
+Notes:
+- `SAHAI_SECRET_KEY` is required for JWT signing.
+- `SAHAI_SETUP_KEY` enables treasurer registration.
+- `DATABASE_URL` points the backend to shared PostgreSQL. When it is omitted, the backend uses the local SQLite file.
+- If you are using the Keycloak/OpenLDAP integration, additional environment values are defined in the Docker Compose file.
+
+---
+
+## 3) Run with Docker (Keycloak/OpenLDAP)
+
+This project includes a Docker Compose setup for Keycloak and OpenLDAP.
+
+### Start the identity stack
+
+From the project root:
+
+```bash
+docker compose -f docker-compose.keycloak.yml up -d
+```
+
+### Access services
+
+- Keycloak: http://localhost:8080
+- OpenLDAP: localhost:389
+- PostgreSQL: internal Keycloak database, not the app's shared production database
+
+### Stop the stack
+
+```bash
+docker compose -f docker-compose.keycloak.yml down
+```
+
+To remove volumes as well:
+
+```bash
+docker compose -f docker-compose.keycloak.yml down -v
+```
+
+### Docker installation guidance
+
+If Docker is not installed yet:
+
+1. Install Docker Desktop for Windows from the official Docker site.
+2. Enable WSL 2 if prompted.
+3. Start Docker Desktop and confirm it is running.
+4. Run the Docker Compose commands above.
+
+If you are using a Linux machine:
+
+```bash
+sudo apt-get update
+sudo apt-get install docker.io docker-compose-plugin
+sudo systemctl enable --now docker
+```
+
+---
+
+### Important: Docker PostgreSQL versus shared PostgreSQL
+
+The PostgreSQL service in `docker-compose.keycloak.yml` stores Keycloak's own
+data and is reachable only inside the Docker network. It does not make SahAI
+data live across other people's machines.
+
+For shared live SahAI data, provision a hosted PostgreSQL database on Railway
+and set the backend's `DATABASE_URL` to Railway's connection string. Docker can
+still run Keycloak locally, but every deployed backend must point to the same
+hosted database.
+
+## 4) Deploy the backend with Railway PostgreSQL
+
+Railway is the hosting platform; PostgreSQL is the database service. Create a
+Railway project with a PostgreSQL service and a backend service connected to
+this repository.
+
+Set these variables on the backend service in Railway:
+
+```text
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+SAHAI_SECRET_KEY=<long-random-production-secret>
+SAHAI_SETUP_KEY=<private-treasurer-registration-secret>
+SAHAI_AUTH_MODE=local
+```
+
+For deployed Keycloak/OIDC, keep `DATABASE_URL` and replace or add:
+
+```text
+SAHAI_AUTH_MODE=oidc
+KEYCLOAK_ISSUER=https://<your-keycloak-host>/realms/sahai
+KEYCLOAK_AUDIENCE=sahai-api
+```
+
+Use this Railway start command:
+
+```bash
+uvicorn backend.app:app --host 0.0.0.0 --port $PORT
+```
+
+Do not commit production secrets or a PostgreSQL connection string. Railway's
+PostgreSQL variable reference keeps every backend instance connected to the
+same database after redeployments.
+
+For the Expo frontend, set the deployed API URL before building or starting it:
+
+```powershell
+$env:EXPO_PUBLIC_API_BASE_URL = "https://<your-railway-backend-domain>"
+```
+
+## 5) Run the backend
+
+### Option A: using the helper script
+
+From the repository root:
+
+```bash
+python dev.py --backend
+```
+
+This starts the FastAPI service on:
+
+- http://localhost:5000
+- API docs: http://localhost:5000/docs
+
+### Option B: direct FastAPI startup
+
+```bash
+python -m uvicorn backend.app:app --reload --host 127.0.0.1 --port 5000
+```
+
+---
+
+## 6) Run the frontend
+
+From the frontend directory:
+
+```bash
+cd frontend
+npm start
+```
+
+For the browser version directly:
+
+```bash
+cd frontend
+npm run web
+```
+
+This starts the Expo development server. Use the terminal prompts to open the app in a browser or emulator.
+
+---
+
+## 7) Run both together
+
+From the repo root:
 
 ```bash
 python dev.py
 ```
 
-| | |
-|---|---|
-| Backend | `http://localhost:5000` — FastAPI, API docs at `/docs` |
-| Frontend | Expo dev server — press `w` for web |
+This starts both the backend and frontend in one command. The helper script supports:
 
-Both hot-reload: editing a `.py` file restarts the API, editing a `.jsx` file
-Fast Refreshes the app. `Ctrl+C` stops both.
+```bash
+python dev.py --backend
+python dev.py --frontend
+python dev.py --web
+python dev.py --host 0.0.0.0
+```
 
-First time only:
+The default backend URL is:
+
+```text
+http://localhost:5000
+```
+
+---
+
+## 8) Seed demo data
+
+Optional demo data can be loaded to populate sample users, accounts, and ledger history.
+
+```bash
+python scripts/seed_demo.py
+```
+
+---
+
+## 9) Connect a phone or another device on the same network
+
+If you want to test the app from a phone, use your machine's local LAN IP instead of `localhost`.
+
+Example:
+
+```powershell
+$env:EXPO_PUBLIC_API_BASE_URL = "http://192.168.1.7:5000"
+```
+
+Then start the backend with:
+
+```bash
+python dev.py --host 0.0.0.0
+```
+
+Use the same Wi-Fi or LAN network for both devices.
+
+---
+
+## 10) Keycloak/SSO notes
+
+This app supports OpenLDAP + Keycloak identity integration. If you are using the Docker setup, see the troubleshooting docs here:
+
+- docs/KEYCLOAK_OPENLDAP.md
+- docs/SSO_TROUBLESHOOTING.md
+
+---
+
+## 11) Common startup checklist
+
+If the app does not start correctly, verify the following:
 
 ```bash
 pip install -r requirements.txt
-cd frontend && npm install && cd ..
-python scripts/seed_demo.py     # optional: demo accounts and ledger history
+cd frontend
+npm install
+cd ..
+python dev.py
 ```
 
-Other options: `python dev.py --backend`, `--frontend`, `--web`, or
-`--host 0.0.0.0` to reach the API from another device.
+If you are seeing backend issues:
+- confirm `SAHAI_SECRET_KEY` is set
+- confirm Python dependencies are installed
+- check whether the app is running on port 5000
 
-### Testing on a physical phone
-
-`localhost` on a phone means the phone, so point the app at your machine's LAN
-address. Create `frontend/.env.local` (gitignored):
-
-```
-EXPO_PUBLIC_API_BASE_URL=http://192.168.1.7:5000
-```
-
-Use your own IP (`ipconfig` / `ifconfig`), start the backend with
-`python dev.py --host 0.0.0.0`, and keep both devices on the same Wi-Fi. On web
-and in emulators the address is detected automatically and this is unnecessary.
-
-### Treasurer registration
-
-Creating a treasurer account requires a shared secret, since a treasurer can
-read every member's finances. Set it before starting:
-
-```bash
-SAHAI_SETUP_KEY=<your-key> python dev.py
-```
-
-Without it, treasurer registration is disabled — which is the safe default.
+If frontend issues appear:
+- confirm Node.js and npm are installed
+- run `npm install` inside `frontend`
+- confirm the backend is already running
 
 ---
 
-# Security & Authentication
+## 12) Useful URLs
 
-This project uses a layered authentication and authorization system to protect user accounts, financial operations, ledgers, and portfolios.
-
-## Security Features
-
-### 1. Secure Password Hashing
-
-User passwords are **never stored as plaintext**.
-
-The application uses:
-
-* **PBKDF2-SHA256** for password hashing
-* A unique **salt** for each password
-* A computationally expensive hashing process to make brute-force attacks more difficult
-
-Conceptually:
-
-```text
-User Password
-     ↓
-PBKDF2-SHA256 + Unique Salt
-     ↓
-Password Hash
-     ↓
-Stored in SQLite
-```
-
-The existing password hashing implementation is maintained in `auth.py`.
+- Backend: http://localhost:5000
+- API docs: http://localhost:5000/docs
+- Keycloak admin UI: http://localhost:8080
 
 ---
 
-### 2. JWT-Based Authentication
+## 13) Notes for contributors
 
-The application uses **JSON Web Tokens (JWT)** to authenticate users after login.
-
-The `PyJWT` dependency is included in `requirements.txt`:
-
-```text
-PyJWT>=2.8.0
-```
-
-After successful authentication:
-
-```text
-Login
-  ↓
-Verify username + password
-  ↓
-Generate JWT
-  ↓
-Client receives token
-  ↓
-Token sent with protected API requests
-  ↓
-Server verifies token
-```
-
-### JWT Expiration
-
-JWT tokens expire after **30 minutes**.
-
-This limits the amount of time a stolen or compromised token can be used.
+- Use the backend API docs at `/docs` to quickly inspect endpoints while developing.
+- Edit Python files and the backend auto-reloads via `uvicorn --reload`.
+- Edit frontend files and Expo will hot-reload for faster iteration.
+- Prefer running the stack with `python dev.py` during development.
 
 ---
 
-### 3. Environment-Based JWT Secret
+## License
 
-The JWT signing key is loaded from the environment using:
-
-```text
-SAHAI_SECRET_KEY
-```
-
-The secret should **not be hardcoded in the source code or committed to GitHub**.
-
-Example environment configuration:
-
-```text
-SAHAI_SECRET_KEY=<your-secret-key>
-```
-
-This keeps sensitive cryptographic credentials separate from the application source code.
-
----
-
-## Authentication API
-
-### `GET /auth/me`
-
-The `/auth/me` endpoint identifies the currently authenticated user.
-
-The client sends a valid JWT with the request:
-
-```http
-GET /auth/me
-Authorization: Bearer <JWT>
-```
-
-The server:
-
-1. Extracts the JWT.
-2. Verifies the token.
-3. Identifies the user.
-4. Returns the authenticated user's information.
-
-This allows the frontend and other parts of the application to determine which user is currently logged in.
-
----
-
-# Role-Based Access Control
-
-The application supports three primary roles:
-
-```text
-ADMIN
-TREASURER
-MEMBER
-```
-
-Authentication determines **who the user is**, while role-based authorization determines **what the user is allowed to do**.
-
-### Role hierarchy
-
-```text
-ADMIN
-  │
-  ├── Admin operations
-  │
-  └── Treasurer operations
-
-TREASURER
-  │
-  └── Treasurer operations
-
-MEMBER
-  │
-  └── Member-level operations
-```
-
-Administrators have sufficient privileges to access treasurer-level operations.
-
----
-
-## Protected Loan Requests
-
-The `/request-loan` endpoint is protected by authentication and authorization checks.
-
-```text
-POST /request-loan
-        ↓
-   Authenticate user
-        ↓
-    Verify JWT
-        ↓
-   Check permissions
-        ↓
-   Process request
-```
-
-Unauthenticated or unauthorized users cannot access protected loan functionality.
-
----
-
-# Ledger and Portfolio Protection
-
-Financially sensitive resources remain protected by authorization checks.
-
-### Ledger
-
-Ledger-related operations require appropriate permissions and cannot be accessed by unauthorized users.
-
-### Portfolio
-
-Members are restricted to their **own portfolio data**.
-
-For example:
-
-```text
-Member A
-   │
-   ├── Portfolio A ✅
-   │
-   └── Portfolio B ❌
-```
-
-This prevents a member from accessing another member's financial information simply by changing a portfolio or user ID in an API request.
-
-This provides **object-level access control** in addition to normal role-based authorization.
-
----
-
-# SQLite Database Migration
-
-SQLite migration support has been added to ensure that existing databases can continue working after changes to the user table.
-
-For example, an older database may contain:
-
-```text
-users
-├── id
-├── username
-└── password
-```
-
-while the updated application may require additional user information such as:
-
-```text
-users
-├── id
-├── username
-├── password
-└── role
-```
-
-The migration logic updates existing user tables where necessary instead of requiring every developer to delete their existing database.
-
-```text
-Existing SQLite Database
-          ↓
-       Migration
-          ↓
- Updated User Schema
-          ↓
- Application Continues Running
-```
-
-This is particularly useful when upgrading an existing installation or when multiple developers have different versions of the local database.
-
----
-
-# Security Architecture
-
-The overall authentication and authorization flow is:
-
-```text
-                    ┌─────────────┐
-                    │    User     │
-                    └──────┬──────┘
-                           │
-                         Login
-                           │
-                           ▼
-                  ┌─────────────────┐
-                  │ Password Check  │
-                  │ PBKDF2-SHA256   │
-                  │ + Salt          │
-                  └────────┬────────┘
-                           │
-                     Authentication
-                           │
-                           ▼
-                    ┌─────────────┐
-                    │     JWT     │
-                    │ 30-min TTL  │
-                    └──────┬──────┘
-                           │
-                    API Requests
-                           │
-                           ▼
-                  ┌─────────────────┐
-                  │ Verify JWT      │
-                  └────────┬────────┘
-                           │
-                           ▼
-                  ┌─────────────────┐
-                  │ Identify User   │
-                  │ + Role          │
-                  └────────┬────────┘
-                           │
-                           ▼
-                  ┌─────────────────┐
-                  │ Authorization   │
-                  │ / Ownership     │
-                  └────────┬────────┘
-                           │
-                    ┌──────┴──────┐
-                    │             │
-                  Allow          Deny
-                    │             │
-                    ▼             ▼
-                 Resource       403/401
-                  Access        Response
-```
-
-## Summary of Security Changes
-
-| Change                       | Purpose                              |
-| ---------------------------- | ------------------------------------ |
-| `PyJWT>=2.8.0`               | JWT authentication                   |
-| Salted PBKDF2-SHA256         | Secure password storage              |
-| 30-minute JWT expiry         | Limits token lifetime                |
-| `SAHAI_SECRET_KEY`           | Keeps JWT secret outside source code |
-| `GET /auth/me`               | Identifies authenticated user        |
-| Admin/Treasurer/Member roles | Role-based authorization             |
-| `/request-loan` protection   | Prevents unauthorized loan requests  |
-| Ledger protection            | Protects financial records           |
-| Portfolio ownership checks   | Prevents cross-user portfolio access |
-| Admin → Treasurer access     | Supports role hierarchy              |
-| SQLite migrations            | Keeps existing databases compatible  |
-
-### Key Security Principle
-
-The application follows the principle:
-
-> **Authentication verifies who the user is; authorization verifies what that user is allowed to access.**
-
-This separation ensures that simply being logged in does not automatically grant access to sensitive financial operations or another user's data.
+This project is intended for internal or project-based use. Add your license details here before public release or repository publication.
