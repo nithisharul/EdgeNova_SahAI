@@ -1,0 +1,97 @@
+{
+  "n_rows": 200000,
+  "split": {
+    "train": 140000,
+    "val": 30000,
+    "test": 30000
+  },
+  "target": {
+    "mean": 48.694937940664424,
+    "std": 28.380516136727042,
+    "min": 0.059953629768570195,
+    "max": 99.9999999850212
+  },
+  "test_regression": {
+    "Mean baseline": {
+      "r2": -6.821531545497805e-05,
+      "mae": 24.503130179831633,
+      "rmse": 28.394223044321357
+    },
+    "Ridge (linear)": {
+      "r2": 0.7353653430007323,
+      "mae": 11.225371915752937,
+      "rmse": 14.606243518060118
+    },
+    "XGBoost Regressor": {
+      "r2": 0.748121866775574,
+      "mae": 10.776589434713364,
+      "rmse": 14.249853852113262
+    }
+  },
+  "risk_bands": [
+    [
+      46.5,
+      "LOW"
+    ],
+    [
+      72.5,
+      "MEDIUM"
+    ],
+    [
+      100.01,
+      "HIGH"
+    ]
+  ],
+  "band_agreement": 0.7408666666666667,
+  "low_high_confusion_rate": 0.0123,
+  "regressor_as_high_risk_classifier": {
+    "roc_auc": 0.9292635059468662,
+    "precision": 0.8106334099113882,
+    "recall": 0.6676577915934586,
+    "f1": 0.7322315274586823
+  },
+  "best_iteration": 707,
+  "top_features": [
+    [
+      "num__log_loan_amount",
+      0.4261668622493744
+    ],
+    [
+      "num__loan_amount",
+      0.17534026503562927
+    ],
+    [
+      "num__savings_consistency",
+      0.11491972208023071
+    ],
+    [
+      "cat__sector_Agriculture",
+      0.05333458259701729
+    ],
+    [
+      "cat__sector_Housing",
+      0.04697757959365845
+    ],
+    [
+      "cat__sector_Personal Use",
+      0.03253667801618576
+    ],
+    [
+      "cat__sector_Services",
+      0.02291269414126873
+    ],
+    [
+      "num__term_in_months",
+      0.02067883498966694
+    ],
+    [
+      "num__monthly_installment",
+      0.016605976969003677
+    ],
+    [
+      "cat__sector_Retail",
+      0.016090771183371544
+    ]
+  ],
+  "label_is_synthetic": true
+}

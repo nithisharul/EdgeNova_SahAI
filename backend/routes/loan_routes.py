@@ -79,6 +79,27 @@ def load_loan_model():
 loan_model, loan_meta = load_loan_model()
 
 
+def load_loan_regressor():
+    """Optional PBL regressor (models/train_loan_regression.py).
+
+    It adds a 0-100 score alongside the classifier and never replaces it, so a
+    missing or unreadable artifact just means the response carries
+    "regression": null.
+    """
+    model_path = os.path.join(MODELS_DIR, "loan_risk_regressor.joblib")
+    meta_path = os.path.join(MODELS_DIR, "loan_risk_regressor_meta.joblib")
+    if not (os.path.exists(model_path) and os.path.exists(meta_path)):
+        return None, None
+    try:
+        return joblib.load(model_path), joblib.load(meta_path)
+    except Exception as exc:  # a broken optional artifact must not take down the classifier
+        print(f"[!] Loan regressor not loaded: {exc}")
+        return None, None
+
+
+loan_regressor, regressor_meta = load_loan_regressor()
+
+
 def compute_savings_consistency(member_id: str):
     """Derive deposit regularity (0-1) from the member's ledger history.
 
@@ -140,6 +161,29 @@ def band_for(proba: float, bands) -> str:
         if proba < cutoff:
             return label
     return bands[-1][1]
+
+
+def score_regression(row: pd.DataFrame):
+    """Score the classifier's own feature row with the regressor, or None.
+
+    The target is a synthetic domain-prior score, not an observed repayment
+    outcome, so R^2 here measures recovery of that score - nothing more.
+    """
+    if loan_regressor is None:
+        return None
+    x = regressor_meta["preprocessor"].transform(row[regressor_meta["feature_cols"]])
+    score = float(np.clip(loan_regressor.predict(x)[0], 0.0, 100.0))
+    bands = regressor_meta["risk_bands"]
+    metrics = regressor_meta.get("test_metrics", {})
+    return {
+        "risk_score_100": round(score, 1),
+        "risk_band": band_for(score, bands),
+        "band_cutoffs": {label: cutoff for cutoff, label in bands[:-1]},
+        "r2": round(float(metrics.get("r2", 0)), 4),
+        "mae": round(float(metrics.get("mae", 0)), 2),
+        "rmse": round(float(metrics.get("rmse", 0)), 2),
+        "label_is_synthetic": bool(regressor_meta.get("label_is_synthetic", True)),
+    }
 
 
 @router.post("/request-loan")
@@ -219,5 +263,6 @@ def request_loan(payload: LoanRequest, user: dict = Depends(get_current_user)):
             "val_auc": round(float(loan_meta.get("val_auc", 0)), 4),
             "label_is_synthetic": bool(loan_meta.get("label_is_synthetic", True)),
         },
+        "regression": score_regression(row),
         "note": "Decision aid only -- final approval remains with the treasurer.",
     }

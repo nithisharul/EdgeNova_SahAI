@@ -283,6 +283,35 @@ function LoanResult({ result, onReset, isDesktop }) {
         </View>
       </Animated.View>
 
+      {/* Both models, side by side. The regressor is optional and may be absent. */}
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Risk indicators</Text>
+        <View style={styles.detailList}>
+          {[
+            { label: 'High-risk probability', value: `${result.riskPercent}%` },
+            { label: 'Risk level', value: result.riskLabel },
+            ...(result.regression
+              ? [
+                  { label: 'Continuous risk score', value: `${Math.round(result.regression.score)} / 100` },
+                  { label: 'Risk band', value: result.regression.band },
+                ]
+              : []),
+          ].map((row, index, all) => (
+            <View
+              key={row.label}
+              style={[styles.detailRow, index === all.length - 1 && styles.detailRowLast]}
+            >
+              <Text style={styles.detailLabel}>{row.label}</Text>
+              <Text style={styles.detailValue}>{row.value}</Text>
+            </View>
+          ))}
+        </View>
+        <Text style={styles.modelBody}>
+          Risk indicators are decision-support estimates and are not automatic loan approval
+          decisions.
+        </Text>
+      </View>
+
       {/* The differentiator: her own ledger history. */}
       <Animated.View style={[styles.savingsBlock, savingsReveal]}>
         <Backdrop variant="fund" height={180} lines={6} />
@@ -377,6 +406,9 @@ function LoanResult({ result, onReset, isDesktop }) {
           {result.model.type} model, validation AUC {result.model.valAuc}.
           {result.model.labelIsSynthetic
             ? ' Its training labels are derived rather than observed repayment outcomes, so treat the score as a screening signal, not a prediction of whether a loan will be repaid.'
+            : ''}
+          {result.regression
+            ? ` The continuous score comes from a separate XGBoost regressor (test R² ${result.regression.r2}) trained on the same derived risk target, so its R² measures recovery of that target, not real default prediction.`
             : ''}
         </Text>
       </View>

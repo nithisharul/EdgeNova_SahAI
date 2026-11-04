@@ -78,6 +78,16 @@ function adaptLoan(raw) {
       valAuc: raw.model?.val_auc,
       labelIsSynthetic: !!raw.model?.label_is_synthetic,
     },
+    // Optional PBL regressor: a 0-100 score from the same request. null when
+    // the backend has no regressor artifact, and the screen then omits it.
+    regression: raw.regression
+      ? {
+          score: raw.regression.risk_score_100,
+          band: raw.regression.risk_band,
+          r2: raw.regression.r2,
+          labelIsSynthetic: !!raw.regression.label_is_synthetic,
+        }
+      : null,
     // Rendered verbatim. It is the backend's own statement of what the number
     // does and does not mean, and rewriting it would overstate the model.
     note: raw.note,
